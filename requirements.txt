@@ -1,0 +1,32 @@
+# Pinned per D16: `pip install -r requirements.txt && python run_all.py` from a
+# clean clone must reproduce every table and figure.
+#
+# Versions below are the ones the project was developed against. Re-pin with
+# `pip freeze` once Stage 0 fixes the environment, and do not float them after.
+
+# --- core ---------------------------------------------------------------
+numpy==2.3.3
+pandas==2.3.2
+pyarrow==21.0.0
+
+# --- statistics ---------------------------------------------------------
+scipy==1.16.1
+statsmodels==0.14.5          # HAC covariance, BH-FDR, exact McNemar
+scikit-learn==1.7.2          # stratified split, macro-F1, confusion matrices
+
+# --- scorers (D7) -------------------------------------------------------
+torch==2.8.0                 # CPU wheel is sufficient; no training here
+transformers==4.56.1         # ProsusAI/finbert
+vaderSentiment==3.3.2
+
+# --- data ---------------------------------------------------------------
+yfinance==0.2.66             # SPY OHLCV + ^VIX
+pandas-market-calendars==5.1.1   # NYSE sessions; D6 depends on this being right
+datasets==4.0.0              # Financial PhraseBank (Malo et al. 2014)
+
+# --- figures and notebooks ---------------------------------------------
+matplotlib==3.10.6
+jupyterlab==4.4.7
+
+# --- tests --------------------------------------------------------------
+pytest==8.4.2
