@@ -2,7 +2,7 @@
 
 Date: 2026-09-09. Increment: **R03a**. Audit finding: **A12** (with A11's missing article-group ID).
 
-Status: **proposal**. No production code has changed and no artifact has been replaced. This document specifies what R03b implements and what R03d then verifies before the frozen corpus is rebuilt. It is written to be approved or rejected on its stated rules, in the pattern of the [timing contract](timing-contract.md) and the [scoring checkpoint contract](scoring-checkpoint-contract.md).
+Status: **implemented at R03b, 2026-09-09** (see §8). No artifact has been replaced; that is R03d. This document specifies what R03b implements and what R03d then verifies before the frozen corpus is rebuilt. It is written to be approved or rejected on its stated rules, in the pattern of the [timing contract](timing-contract.md) and the [scoring checkpoint contract](scoring-checkpoint-contract.md).
 
 Related: [project audit](project-audit-2026-09-09.md) A11/A12 · [repair plan](audit-implementation-plan-2026-09-09.md) R03a–R03d · [data audit](data-audit-fnspid.md) §11 · [validation protocol](validation-protocol.md) §4.
 
@@ -152,8 +152,15 @@ A new artifact, `data/interim/dedup_lineage.parquet`, one row per **raw** row (1
 | `headline_id` | Its own content id (not unique in this table) |
 | `cluster_id` | The representative's `headline_id` |
 | `kept` | Whether this row survived |
-| `eliminated_by` | `source_row_id` of the row it was eliminated against; null when `kept` |
+| `eliminated_by` | `source_row_id` of the row it was eliminated **against**; null when `kept` |
 | `relation` | `exact` \| `near` \| null when `kept` |
+
+**`eliminated_by` need not itself be a survivor.** An exact repeat's anchor can
+later be removed as a near-duplicate of an earlier headline, so elimination
+forms short chains — **12,074 rows, 2.2% of all eliminations**, on the real
+corpus. The lineage records the *immediate* step, because that is what actually
+happened; `cluster_id` is the resolved root and is always a survivor. The
+invariant to test is on `cluster_id`, not on `eliminated_by`.
 
 This makes the whole dedup auditable and the 38.5% rate recomputable without re-running the pass, which the data audit currently cannot do.
 
@@ -205,7 +212,7 @@ Offline, fixture-based, no network and no corpus rebuild.
 3. **Attribution.** On a fixture mixing exact repeats and genuine near-duplicates, `n_exact_dropped` and `n_near_dropped` each count only their own relation.
 4. **Tag union.** A story filed under three tickers survives once with all three tags and `n_cluster_rows == 3`.
 5. **Boundary.** `min_len_missable == 20` at `overlap=0.90` and `40` at `0.95`; a 20-unique-token row is counted in `share_above_signature_limit`.
-6. **Lineage completeness.** Lineage rows == raw rows; every `kept=False` row names an `eliminated_by` that is itself kept; every `cluster_id` resolves to a kept row; the dedup rate recomputed from lineage equals `stats["dedup_rate"]`.
+6. **Lineage completeness.** Lineage rows == raw rows; every `kept=False` row names an `eliminated_by` present in the input; every `cluster_id` resolves to a kept row; the dedup rate recomputed from lineage equals `stats["dedup_rate"]`.
 7. **Uniqueness preserved.** `headline_id` remains unique on the survivor frame, so the R04b gate is unaffected.
 8. **Representative text.** Where cluster members share `text_norm` but differ in raw `text`, the scored text is the one the §3.2 order selects.
 
@@ -218,4 +225,40 @@ Rebuild raw → clean through R02's verified path with R03b's rules; diff member
 1. **`source_row_id` as raw ordinal position.** The alternative is a content hash including the ticker field, which would be independent of file order but would not distinguish two genuinely identical raw rows. Position is available and cheap because the file is pinned.
 2. **Representative = earliest timestamp, then smallest `source_row_id`.** The alternative tie-break — most ticker tags — is content-aware but no longer needed once tags are unioned, and it would still need a final deterministic tie-break.
 3. **Article groups computed within the drawn sample, not corpus-wide** (§3.7). This is the one place where a cheaper design is also the more exact one, but it does mean the clean corpus carries no `group_id`.
-4. **R03d replaces the frozen artifact for a 93-row change.** The alternative is to keep the current corpus and correct only the documentation. My recommendation is to replace: the order-dependence in §2.2 is a reproducibility defect independent of the row count, and the corpus should be the one the stated rules produce.
+4. **R03d replaces the frozen artifact.** The alternative is to keep the current corpus and correct only the documentation. My recommendation is to replace: the order-dependence in §2.2 is a reproducibility defect independent of the row count, and the corpus should be the one the stated rules produce.
+
+---
+
+## 8. Implementation and verification (R03b, 2026-09-09)
+
+Implemented in `src/data.py`; `data/raw/download.py` writes the lineage artifact
+after the clean corpus, so a crash leaves a corpus with missing lineage rather
+than lineage describing a corpus that was never published. **216 tests pass, 0
+skipped** — 9 new, covering §5's eight acceptance checks plus the refusal of an
+unnumbered frame.
+
+Verified on the real corpus, read-only, nothing written to `data/`:
+
+| Check | Result |
+|---|---|
+| **Order invariance** — permute 1,412,524 raw rows, re-run | Membership symmetric difference **0**; **0** differing representatives; **0** differing tag sets. Was 2,363 ids and 93,552 tag sets (10.78%) |
+| Exact drops | **539,087** — matches R03a's prediction exactly |
+| Near drops | **4,243** (R03a predicted 4,245; that probe held the old unstable sort, this uses the total order) |
+| Distinct tickers | 5,707 → **6,235** — matches prediction |
+| Top-10 share | 2.09% → **2.04%**; effective names 1,839 → **1,809** |
+| Tag slots recovered | 869,205 → **1,386,040** |
+| Lineage integrity | Rows == raw rows; rate recomputed from lineage == `stats["dedup_rate"]` to 6 dp; `headline_id` still unique on survivors (R04b gate holds) |
+| Blocking exposure | `min_len_missable` **20**, exposure **7.70%** — measured over the exact-survivors the near pass actually sees, which is its correct denominator, so it is not directly comparable to R03a's 6.98% over all raw rows |
+
+**Membership against the saved artifact: 2,557 ids differ (0.29%), net −11.**
+R03a's headline figure of 93 measured the window repair *alone*, holding the old
+sort fixed; the larger number is the combined effect of the window repair and
+the total-order representative rule replacing the unstable sort. Both are
+correct measurements of different things. Either way the change is well under
+half a percent, across 2,516 sessions, so the D4 coverage freeze is not at risk
+— R03d confirms that rather than assuming it.
+
+One design decision came out of implementation rather than specification: the
+elimination chains above. The assertion that every eliminated row points at a
+survivor was written into the first implementation and **failed on the real
+corpus**, which is how the chains were found.

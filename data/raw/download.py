@@ -226,6 +226,17 @@ def manifest_path(artifact: Path) -> Path:
     return Path(artifact).with_suffix(Path(artifact).suffix + ".manifest.json")
 
 
+def lineage_path(artifact: Path) -> Path:
+    """Where a clean corpus's dedup lineage lives: beside it, not at a fixed path.
+
+    Deriving this from `out` rather than from `config` is not a detail. With the
+    config constant hard-coded here, a test publishing a clean corpus into
+    `tmp_path` still wrote its lineage into the real `data/interim`, so a test
+    run left a stray artifact next to the frozen corpus.
+    """
+    return Path(artifact).with_name("dedup_lineage.parquet")
+
+
 def assemble_corpus(
     url: str = FNSPID_URL,
     domains: tuple[str, ...] | None = None,
@@ -403,7 +414,14 @@ def deduplicate_corpus(
 
     df = pd.read_parquet(raw)
     before = len(df)
-    clean, stats = sdata.dedup(df, near_dupe=near_dupe)
+    if "source_row_id" not in df.columns:
+        raise AcquisitionError(
+            f"{raw} predates R03b and carries no 'source_row_id', so the "
+            "representative rule (ts_utc, source_row_id) cannot be applied and "
+            "duplicate resolution would fall back to row order. Re-run "
+            "--assemble to rebuild the raw corpus with row identifiers."
+        )
+    clean, stats, lineage = sdata.dedup(df, near_dupe=near_dupe, return_lineage=True)
 
     manifest = {
         "artifact": "headlines",
@@ -419,13 +437,22 @@ def deduplicate_corpus(
         "window_days": stats["window_days"],
         "overlap_threshold": stats["overlap_threshold"],
         "share_above_signature_limit": stats.get("share_above_signature_limit"),
+        "min_len_missable": stats.get("min_len_missable"),
+        "lineage": lineage_path(out).name,
     }
     _publish(clean, out, manifest)
+
+    # Lineage is written AFTER the clean corpus, for the same reason the
+    # acquisition manifest is written after the data: a crash then leaves a
+    # corpus whose lineage is missing, rather than lineage describing a corpus
+    # that was never published.
+    lineage.to_parquet(lineage_path(out), index=False)
     print(
         f"wrote {out}\n"
         f"  {before:,} -> {len(clean):,} rows  "
         f"({stats['dedup_rate']:.1%} removed: {stats['n_exact_dropped']:,} exact, "
-        f"{stats['n_near_dropped']:,} near)"
+        f"{stats['n_near_dropped']:,} near)\n"
+        f"  lineage -> {lineage_path(out)} ({len(lineage):,} rows)"
     )
     return out
 

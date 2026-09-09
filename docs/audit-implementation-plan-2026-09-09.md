@@ -4,7 +4,89 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
-**R03a complete (latest). R01a–R01d, R02, R03c, R04a, R04b and R05 complete.**
+**R03b complete (latest). R01a–R01d, R02, R03a, R03c, R04a, R04b and R05 complete.**
+
+### Environment: the scoring blocker has cleared
+
+`torch 2.14.0+cpu` and `transformers 5.16.1` now load and FinBERT runs. The
+seven tests that had skipped since B22 execute for the first time, so the suite
+reports **0 skipped**. **B22, R10 and R11 are unblocked.** Two external
+dependencies remain: the Loughran–McDonald dictionary and a named annotator.
+
+On its first real execution one of those tests failed, and it was not a code
+defect. `test_finbert_gets_the_documented_hard_cases_right` asserted that
+FinBERT would *not* call "Costs fell sharply in the third quarter" negative —
+Exhibit A's premise that a context model sees what a word counter cannot.
+FinBERT calls it **negative with P = 0.932**, and calls "Profit warning smaller
+than feared" **negative with P = 0.924**. Both are the cases the fixture was
+built to demonstrate, and on both FinBERT agrees with the word counter it was
+supposed to beat.
+
+The B12 label-order pin is confirmed **correct** against the real checkpoint —
+"shares plunge" → negative, "profit beats" → positive — which had never actually
+been executed. What failed was a test asserting a research expectation on six
+invented sentences before Act 1 has run: the same predetermined-finding pattern
+P24 removed from the figure titles. On the user's instruction the assertion was
+**removed rather than inverted** and replaced with a characterization record
+pinned to `config.FINBERT_REVISION`, which detects a changed model, revision or
+label mapping and claims nothing about quality. Six invented sentences measure
+nothing in either direction; Act 1 measures classification quality on
+independently annotated corpus text. The same unverified premise still stands in
+`README.md:5` and `report/report.md:12` and is R09/B27 scope.
+
+### R03b — dedup lineage implemented
+
+*R03b (A12)* — implements the [dedup lineage contract](dedup-lineage-contract.md)
+in `src/data.py`, with `data/raw/download.py` writing the lineage artifact after
+the clean corpus so a crash leaves a corpus with missing lineage rather than
+lineage describing a corpus that was never published. **216 passed, 0 skipped**;
+9 new tests cover the contract's eight acceptance checks plus the refusal of an
+unnumbered frame.
+
+Verified on the real 1,412,524-row corpus, read-only, nothing written to `data/`:
+
+- **Order invariance achieved.** Permuting the corpus and re-running now gives a
+  membership symmetric difference of **0**, with **0** differing representatives
+  and **0** differing tag sets. Before R03b the same permutation changed 2,363
+  ids and the retained tags of **93,552 survivors (10.78%)**.
+- **Exact drops 539,087**, matching R03a's prediction exactly; near drops
+  **4,243** against a predicted 4,245, the small difference being that R03a's
+  probe held the old unstable sort while this uses the total order.
+- **Tag recovery:** distinct tickers 5,707 → **6,235**, tag slots 869,205 →
+  **1,386,040**, top-10 share 2.09% → **2.04%**, effective names 1,839 →
+  **1,809**. Concentration is marginally lower, so D4 is unaffected.
+- **Lineage integrity:** rows equal raw rows; the dedup rate recomputed from
+  lineage alone equals the reported rate to six decimal places; `headline_id`
+  remains unique on survivors, so R04b's gate is untouched.
+- **Blocking boundary** now 20 at `overlap=0.90`, exposure **7.70%** measured
+  over the exact-survivors the near pass actually sees — its correct denominator,
+  so not directly comparable to R03a's 6.98% over all raw rows.
+
+Membership against the saved artifact differs by **2,557 ids (0.29%), net −11**.
+R03a's headline figure of 93 measured the window repair alone, holding the old
+sort fixed; the larger number is the combined effect of the window repair and
+the total-order rule replacing the unstable sort. Both measure different things
+and both are correct.
+
+**One design decision came out of implementation, not specification.** The first
+implementation asserted that every eliminated row points at a survivor. That
+assertion **failed on the real corpus**: an exact repeat's anchor can itself be
+removed later as a near-duplicate of an earlier headline, so elimination forms
+chains — **12,074 rows, 2.2% of all eliminations**. Lineage now records the
+immediate eliminator, because that is what happened, and `cluster_id` resolves
+to the root, which is always a survivor. The contract and its acceptance test
+were corrected to test the invariant that actually holds.
+
+**A second defect was found by the same discipline.** The first implementation
+wrote lineage to `config.DEDUP_LINEAGE_PARQUET`, an absolute path. The
+acquisition test publishes into `tmp_path` — so it published a corpus there and
+deposited its lineage in the **real `data/interim`**, beside the frozen corpus.
+The writer now derives the path from the corpus it accompanies
+(`download.lineage_path`, mirroring the existing `manifest_path`), and the
+acquisition test asserts both that lineage lands beside `out` and that the
+configured path stays absent.
+
+### Previous checkpoint: R03a
 
 *R03a (A12, with A11's missing article-group ID)* — wrote the
 [dedup lineage contract](dedup-lineage-contract.md), specifying `source_row_id`,
@@ -242,7 +324,7 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | R01d — durable recovery | Implement approved checkpoint contract; inject failures at file-write/commit boundaries | Every interrupted state recovers the last consistent checkpoint or refuses explicitly; resumed scores equal uninterrupted scores | R01c; A02 |
 | R02 — assembly contract | `data/raw/download.py` plus data tests: raw/clean destination separation, pinned revision, stream digest/length, atomic final publication | Small mocked download cannot overwrite the clean corpus as raw; wrong digest refuses publication; offline deterministic test | B04/B26; A05 |
 | ✅ R03a — dedup lineage | **Done 2026-09-09** — [dedup lineage contract](dedup-lineage-contract.md). Representative ordering, `source_row_id`, group lineage, unioned tags, re-anchored exact window, corrected blocking boundary; dedup clusters separated from article groups | Impact quantified on the real corpus rather than fixtures: 75.7% of (group, ticker) pairs destroyed; exact/near split wrong by 96.2% of the near count; membership effect only 93 ids; output not order-invariant (10.78% tag churn). Four decisions requested in §7 | B04/B11; A12 |
-| R03b — dedup repairs | `src/data.py`, `tests/test_data.py`: implement the [dedup lineage contract](dedup-lineage-contract.md) — re-anchored exact window, total representative order, unioned tags, lineage artifact, corrected boundary | The contract's eight acceptance tests in §5, including order invariance under all six permutations of the tied fixture and lineage completeness against the raw row count | R03a; A12 |
+| ✅ R03b — dedup repairs | **Done 2026-09-09.** `src/data.py`, `data/raw/download.py`, `tests/test_data.py`: re-anchored exact window, total representative order `(ts_utc, source_row_id)`, unioned tags, lineage artifact, corrected boundary; elimination chains resolved to a surviving root | 9 new tests, 216 passing 0 skipped. On the real corpus: order invariance verified (symmetric difference 0, was 2,363 ids and 10.78% tag churn), exact drops 539,087 as predicted, tickers 5,707 → 6,235, rate recomputable from lineage | R03a; A12 |
 | R03c — census correction | `src/audit.py`, audit tests/docs: derive all counts from one session assignment | Totals reconcile; real saved corpus reports 869,114 assigned headlines and one boundary zero; yearly window decision reviewed without outcome fitting | A06; independent of model setup |
 | R03d — corpus verification checkpoint | Run the repaired raw-to-clean path only after membership effects are reviewable; persist manifest and lineage | Compare IDs/counts against old corpus, explain changes, revalidate coverage and record decision before replacement | R02/R03a–c; required before final annotation draw |
 | R04a — market/calendar repair | `src/data.py`, `src/align.py`, loader/panel tests: calendar before returns, inclusive end handling, explicit warmup | Missing Tuesday makes Wednesday's return undefined; no one-session target spans a gap; final session requested; warmup does not expand analysis dates | Reopen B08, prepare B16; A04 |

@@ -22,6 +22,12 @@ REPORT = ROOT / "report"
 HEADLINES_PARQUET = DATA_INTERIM / "headlines.parquet"
 # Filtered but not deduplicated, kept so the dedup rate stays checkable.
 HEADLINES_RAW_PARQUET = DATA_INTERIM / "headlines_raw.parquet"
+# One row per RAW row: which cluster it joined, whether it survived, and what
+# eliminated it. Makes the dedup rate recomputable from the artifacts instead of
+# only reproducible by re-running the pass (R03b). The writer derives the actual
+# path from the clean corpus it accompanies (`download.lineage_path`), so this
+# names the default location rather than dictating it.
+DEDUP_LINEAGE_PARQUET = DATA_INTERIM / "dedup_lineage.parquet"
 SCORES_PARQUET = DATA_INTERIM / "scores.parquet"
 MARKET_PARQUET = DATA_INTERIM / "market.parquet"
 PANEL_PARQUET = DATA_PROCESSED / "daily_panel.parquet"

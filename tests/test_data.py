@@ -182,13 +182,20 @@ def test_fallback_is_marked_implemented():
 # ------------------------------------------------- near-duplicate detection
 
 
-def _frame(texts, dates):
+def _frame(texts, dates, tickers=None):
+    """A minimal headline frame carrying everything `dedup` now requires.
+
+    `source_row_id` is explicit rather than implied by row order: that is the
+    whole point of R03b's representative rule.
+    """
     return pd.DataFrame(
         {
+            "source_row_id": range(len(texts)),
             "headline_id": [f"h{i}" for i in range(len(texts))],
             "text": texts,
             "text_norm": [t.lower() for t in texts],
             "ts_utc": [pd.Timestamp(d, tz="UTC") for d in dates],
+            "tickers": tickers if tickers is not None else [[] for _ in texts],
         }
     )
 
@@ -333,3 +340,186 @@ def test_window_end_is_inclusive_of_its_last_day_and_nothing_more(tmp_path):
     assert len(df) == 2
     assert df["ts_utc"].max().strftime("%Y-%m-%d") == "2019-12-31"
     assert "one day too far" not in set(df["text"])
+
+
+# --------------------------------------------------------------------------
+# R03b: the dedup lineage contract's acceptance tests (docs/dedup-lineage-contract.md
+# section 5). Each corresponds to a defect reproduced against the running code
+# in R03a and quantified on the real corpus.
+# --------------------------------------------------------------------------
+
+
+def _clustered_frame():
+    """One story filed under three tickers, all on the same date.
+
+    A date-only corpus stamps every headline on a date at 00:00 UTC, so all
+    three rows tie on `ts_utc`. This is the ordinary case here, not an edge one.
+    """
+    return _frame(
+        ["Fed holds rates steady"] * 3,
+        ["2015-03-18"] * 3,
+        tickers=[["SPY"], ["QQQ"], ["DIA"]],
+    )
+
+
+def test_dedup_output_is_invariant_to_input_order():
+    """A12/D-2. The survivor must be a function of the input SET.
+
+    Before R03b, `dedup` sorted on `ts_utc` alone with pandas' default
+    quicksort, which is not stable, so the survivor of a tied group was
+    whichever row arrived first. On the real corpus, permuting the input changed
+    2,363 surviving ids and the retained tickers of 10.78% of survivors.
+    """
+    import itertools
+
+    base = _clustered_frame()
+    seen = set()
+    for perm in itertools.permutations(range(3)):
+        shuffled = base.iloc[list(perm)].reset_index(drop=True)
+        # source_row_id travels WITH the row; only the frame order changes.
+        out, _ = sdata.dedup(shuffled)
+        assert len(out) == 1
+        seen.add(
+            (
+                out["source_row_id"].iloc[0],
+                tuple(out["tickers"].iloc[0]),
+                out["cluster_id"].iloc[0],
+                int(out["n_cluster_rows"].iloc[0]),
+            )
+        )
+    assert len(seen) == 1, f"output depends on input order: {seen}"
+    # The stated rule picks the smallest source_row_id among the timestamp ties.
+    assert next(iter(seen))[0] == 0
+
+
+def test_dedup_unions_ticker_tags_across_the_cluster():
+    """A12/D-3. 75.7% of distinct (cluster, ticker) pairs were being destroyed."""
+    out, _ = sdata.dedup(_clustered_frame())
+    assert len(out) == 1
+    assert list(out["tickers"].iloc[0]) == ["DIA", "QQQ", "SPY"]
+    assert int(out["n_cluster_rows"].iloc[0]) == 3
+
+
+def test_exact_window_reanchors_on_the_last_kept_occurrence():
+    """A12/D-1, the audit's exact probe.
+
+    Days 0, 1, 10, 11. Days 10 and 11 are an identical pair one day apart. The
+    old window was measured from day 0, so both cleared it: day 11 was then
+    removed by the NEAR pass and counted as a near duplicate, and with
+    `near_dupe=False` it survived outright. On the real corpus this
+    misattributed 107,485 rows -- 96.2% of the reported near count.
+    """
+    df = _frame(
+        ["Apple beats on earnings"] * 4,
+        ["2015-01-05", "2015-01-06", "2015-01-15", "2015-01-16"],
+    )
+    for near_dupe in (False, True):
+        out, stats = sdata.dedup(df.copy(), near_dupe=near_dupe)
+        kept = list(out["ts_utc"].dt.strftime("%Y-%m-%d"))
+        assert kept == ["2015-01-05", "2015-01-15"], (near_dupe, kept)
+        assert stats["n_exact_dropped"] == 2
+        assert stats["n_near_dropped"] == 0, "an exact repeat is not a near one"
+
+
+def test_exact_and_near_are_attributed_to_their_own_relation():
+    """The two counts must each describe what they name."""
+    # Ten unique tokens, one replaced: 9/10 = 0.90, exactly at the threshold.
+    ten = "apple beats on earnings and raises its full year outlook"
+    near = "apple beats on earnings and raises its full year guidance"
+    df = _frame(
+        [ten, ten, near, "microsoft cuts its dividend"],
+        ["2015-01-05"] * 4,
+    )
+    out, stats, lineage = sdata.dedup(df, return_lineage=True)
+    assert stats["n_exact_dropped"] == 1
+    assert stats["n_near_dropped"] == 1
+    assert set(lineage.loc[~lineage["kept"], "relation"]) == {"exact", "near"}
+    assert len(out) == 2
+
+
+def test_signature_limit_boundary_is_twenty_tokens_at_the_configured_threshold():
+    """A12/D-4. `ceil(2/(1-0.90))` returns 21 in binary floating point.
+
+    A 20-unique-token pair differing by two tokens scores exactly 18/20 = 0.90
+    and clears the threshold, so 20-token rows ARE exposed. The float form
+    excluded 14,494 real rows from the quoted figure.
+    """
+    assert sdata._missable_token_length(0.90) == 20
+    assert sdata._missable_token_length(0.95) == 40
+    assert sdata._missable_token_length(0.80) == 10
+
+    exactly_twenty = " ".join(f"tok{i:02d}" for i in range(20))
+    nineteen = " ".join(f"word{i:02d}" for i in range(19))
+    df = _frame([exactly_twenty, nineteen], ["2015-01-05", "2015-01-06"])
+    _, stats = sdata.dedup(df)
+    assert stats["min_len_missable"] == 20
+    assert stats["share_above_signature_limit"] == pytest.approx(0.5)
+
+
+def test_lineage_accounts_for_every_input_row():
+    """The dedup rate must be recomputable from the artifact, not only re-run."""
+    df = _frame(
+        ["Apple beats on earnings"] * 3 + ["Microsoft cuts its outlook"],
+        ["2015-01-05"] * 3 + ["2015-01-06"],
+        tickers=[["AAPL"], ["AAPL"], ["SPY"], ["MSFT"]],
+    )
+    out, stats, lineage = sdata.dedup(df, return_lineage=True)
+
+    assert list(lineage.columns) == sdata.LINEAGE_COLUMNS
+    assert len(lineage) == len(df)
+    assert set(lineage["source_row_id"]) == set(df["source_row_id"])
+
+    # Every eliminated row names a survivor, and every cluster resolves to one.
+    kept_ids = set(out["source_row_id"])
+    dropped = lineage[~lineage["kept"]]
+    assert len(dropped) == len(df) - len(out)
+    # `eliminated_by` records the IMMEDIATE eliminator, which need not itself
+    # have survived: an exact repeat's anchor can later be removed as a
+    # near-duplicate of an earlier headline, so elimination forms short chains.
+    # `cluster_id` is the resolved root, and that is what must be a survivor.
+    assert set(dropped["eliminated_by"]).issubset(set(df["source_row_id"]))
+    kept_cluster_ids = set(out["cluster_id"])
+    assert set(dropped["cluster_id"]).issubset(kept_cluster_ids)
+    assert lineage.loc[lineage["kept"], "eliminated_by"].isna().all()
+    assert lineage.loc[lineage["kept"], "relation"].isna().all()
+    assert set(lineage["cluster_id"]).issubset(kept_cluster_ids)
+
+    # The rate recomputed from lineage alone equals the reported one.
+    assert 1 - lineage["kept"].mean() == pytest.approx(stats["dedup_rate"])
+
+
+def test_dedup_preserves_headline_id_uniqueness_for_the_r04b_gate():
+    """R04b requires unique, non-null ids on both sides of the score join."""
+    df = _frame(
+        ["Apple beats on earnings"] * 3 + ["Microsoft cuts its outlook"],
+        ["2015-01-05"] * 3 + ["2015-01-06"],
+    )
+    out, _ = sdata.dedup(df)
+    assert out["headline_id"].is_unique
+    assert out["headline_id"].notna().all()
+
+
+def test_representative_text_is_chosen_by_the_stated_rule():
+    """Cluster members share `text_norm` but may differ in raw `text`.
+
+    The representative's raw text is what gets scored, so which row wins is a
+    measurement decision, not a formatting detail.
+    """
+    df = _frame(
+        ["APPLE BEATS ON EARNINGS", "Apple beats on earnings"],
+        ["2015-01-05", "2015-01-05"],
+    )
+    df["text_norm"] = "apple beats on earnings"
+    # Give the lower-cased row the smaller id, so the rule must select it.
+    df["source_row_id"] = [1, 0]
+    out, _ = sdata.dedup(df)
+    assert len(out) == 1
+    assert out["text"].iloc[0] == "Apple beats on earnings"
+    assert out["source_row_id"].iloc[0] == 0
+
+
+def test_dedup_refuses_a_frame_without_source_row_id():
+    """The strict schema is what keeps an unnumbered frame off the corpus path."""
+    df = _frame(["Apple beats on earnings"], ["2015-01-05"]).drop(columns=["source_row_id"])
+    with pytest.raises(ValueError, match="source_row_id"):
+        sdata.dedup(df)

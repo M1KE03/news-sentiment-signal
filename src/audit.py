@@ -411,7 +411,31 @@ def duplication_profile(df: pd.DataFrame, clustered: bool = True, **dedup_kwargs
 
     from src import data as sdata
 
-    _, stats = sdata.dedup(df, **dedup_kwargs)
+    # An audit sample is a slice of a raw file, not a headline artifact: it may
+    # carry `Article_title` and nothing else `dedup` needs. Build the minimum
+    # `dedup` requires, here, rather than loosening `dedup` itself -- the strict
+    # schema is what stops an unnumbered frame reaching the real corpus path.
+    #
+    # `source_row_id` is assigned from the sample's own order. That is sound for
+    # a *rate*, which does not depend on which member of a duplicate group
+    # survives, and it is not a corpus identifier: nothing here is written to an
+    # artifact.
+    work = df.copy()
+    if "ts_utc" not in work.columns:
+        for cand in ("ts_utc", "Date", "date"):
+            if cand in df.columns:
+                work["ts_utc"] = pd.to_datetime(df[cand], errors="coerce", utc=True)
+                break
+    work = work[work["ts_utc"].notna()]
+    if "tickers" not in work.columns:
+        work["tickers"] = [[] for _ in range(len(work))]
+    if "headline_id" not in work.columns:
+        work["headline_id"] = [
+            sdata._headline_id(t, x)
+            for t, x in zip(work["text_norm"], work["ts_utc"])
+        ]
+    work = sdata.assign_source_row_ids(work)
+    _, stats = sdata.dedup(work, **dedup_kwargs)
     out.update(stats)
     out["dedup_rate"] = CorpusRate("dedup_rate", float(stats["dedup_rate"]))
     return out

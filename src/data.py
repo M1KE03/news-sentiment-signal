@@ -19,7 +19,25 @@ import config
 _WS = re.compile(r"\s+")
 _PUNCT = re.compile(r"[^\w\s]")
 
-HEADLINE_COLUMNS = ["headline_id", "text", "text_norm", "ts_utc", "ts_et", "tickers", "source"]
+HEADLINE_COLUMNS = [
+    "source_row_id", "headline_id", "text", "text_norm",
+    "ts_utc", "ts_et", "tickers", "source",
+]
+
+# Added by `dedup`. `cluster_id` is the representative's `headline_id`, which
+# joins a surviving row to its lineage record; `n_cluster_rows` is how many raw
+# rows it stands for.
+CLEAN_COLUMNS = HEADLINE_COLUMNS + ["cluster_id", "n_cluster_rows"]
+
+LINEAGE_COLUMNS = [
+    "source_row_id", "headline_id", "cluster_id", "kept",
+    "eliminated_by", "relation",
+]
+
+# What a single parsed chunk carries. `source_row_id` is assigned once, after
+# every chunk has been concatenated, so that it numbers the whole filtered read
+# rather than restarting per chunk.
+_PARSED_COLUMNS = [c for c in HEADLINE_COLUMNS if c != "source_row_id"]
 
 # Column names, source timezone and timestamp format per dataset. Verified by
 # reading the file's bytes in the B03 audit, not taken from documentation --
@@ -126,7 +144,7 @@ def _parse_chunk(raw: pd.DataFrame, spec: dict, domains: tuple[str, ...],
     ]
     df["text"] = df["text"].astype(str)
     df["source"] = df["source"].astype(str)
-    return df.loc[:, HEADLINE_COLUMNS]
+    return df.loc[:, _PARSED_COLUMNS]
 
 
 def load_news(
@@ -210,7 +228,7 @@ def load_news(
 
     out = (
         pd.concat(frames, ignore_index=True) if frames
-        else pd.DataFrame(columns=HEADLINE_COLUMNS)
+        else pd.DataFrame(columns=_PARSED_COLUMNS)
     )
     # Pin the string dtypes after concatenation. Without this the result depends
     # on how many chunks were read -- a single frame keeps pandas' inferred
@@ -219,10 +237,58 @@ def load_news(
     # could mismatch. Chunking must change nothing observable.
     for col in ("headline_id", "text", "text_norm", "source"):
         out[col] = out[col].astype("string")
-    out = out.sort_values("ts_utc").reset_index(drop=True)
+
+    # `source_row_id` is assigned in FILE order, before any sort, and is the
+    # only row identifier the pipeline has: `headline_id` is sha1(text_norm |
+    # ts_utc), so a story filed under three tickers on one date yields ONE id
+    # for THREE rows (518,332 such rows in the real raw corpus). Position is
+    # well defined here because R02 pins the source by revision, SHA-256 and
+    # byte length, so the filtered read is reproducible.
+    out["source_row_id"] = np.arange(len(out), dtype="int64")
+
+    # Stable sort. The default quicksort is not stable, and in a date-only
+    # corpus every headline on a date shares the identical 00:00 UTC stamp, so
+    # an unstable sort permutes same-day rows arbitrarily (A12/D-2).
+    out = out.sort_values("ts_utc", kind="stable").reset_index(drop=True)
+    out = out.loc[:, HEADLINE_COLUMNS]
     stats["n_kept"] = len(out)
     out.attrs["load_stats"] = stats
     return out
+
+
+def assign_source_row_ids(df: pd.DataFrame) -> pd.DataFrame:
+    """Number rows 0..n-1 in their current order, as `source_row_id`.
+
+    `load_news` does this itself. This helper exists for callers holding a frame
+    that predates the column -- a raw artifact written before R03b, or a test
+    fixture -- so that the identifier is always assigned at one explicit place
+    rather than inferred from whatever order a frame happens to be in.
+    """
+    out = df.copy()
+    out["source_row_id"] = np.arange(len(out), dtype="int64")
+    return out
+
+
+def _missable_token_length(overlap: float) -> int:
+    """Smallest unique-token count at which the blocking can miss a duplicate.
+
+    Deletion signatures catch token sets differing by one element, so the blind
+    spot starts at a two-token difference, which clears `overlap` when
+    `(L - 2) / L >= overlap`, i.e. `L >= 2 / (1 - overlap)`.
+
+    Computed in exact rational arithmetic. `int(np.ceil(2 / (1 - 0.90)))`
+    returns **21**, because `1 - 0.90` is `0.09999999999999998` in binary
+    floating point and the quotient lands a hair above 20. The documented
+    boundary is 20, and a 20-token pair differing by two tokens scores exactly
+    `18/20 = 0.90` and does clear the threshold, so the float form silently
+    excluded 14,494 real rows from the quoted exposure (A12/D-4).
+    """
+    if overlap >= 1.0:
+        return 10 ** 9
+    from fractions import Fraction
+
+    q = 2 / (1 - Fraction(str(overlap)))
+    return -(-q.numerator // q.denominator)
 
 
 def _token_set_overlap(a: str, b: str) -> float:
@@ -246,8 +312,12 @@ def _deletion_signatures(tokens: tuple[str, ...]) -> list[int]:
 
 
 def near_duplicate_keep(
-    text_norm: pd.Series, ts: pd.Series, window_days: int = 3, overlap: float = 0.90
-) -> np.ndarray:
+    text_norm: pd.Series,
+    ts: pd.Series,
+    window_days: int = 3,
+    overlap: float = 0.90,
+    return_eliminator: bool = False,
+):
     """Boolean keep-mask: drop a headline that near-repeats a kept earlier one.
 
     **Why blocking rather than pairwise.** The obvious implementation compares
@@ -273,6 +343,10 @@ def near_duplicate_keep(
     differing by one token scores 8/9 = 0.889 and is **kept**. The threshold is
     strict on short text by design, and most of the real duplication in this
     corpus is exact rather than near, so it is caught upstream.
+
+    With `return_eliminator=True`, also returns the positional index of the kept
+    row each dropped row was eliminated against, `-1` where the row was kept.
+    That is what lets `dedup` record lineage instead of only a count (R03b).
     """
     from collections import deque
 
@@ -282,6 +356,7 @@ def near_duplicate_keep(
     window = np.timedelta64(window_days, "D")
 
     keep = np.ones(len(order), dtype=bool)
+    elim = np.full(len(order), -1, dtype=np.int64)   # sorted-position of the eliminator
     index: dict[int, list[int]] = {}
     live: deque = deque()          # (position, signatures) of kept rows in window
     sets: dict[int, set] = {}
@@ -306,21 +381,22 @@ def near_duplicate_keep(
         sigs = _deletion_signatures(toks)
         this = set(toks)
         seen: set[int] = set()
-        duplicate = False
-        for s in sigs:
-            for cand in index.get(s, ()):
+        duplicate = -1
+        for sig in sigs:
+            for cand in index.get(sig, ()):
                 if cand in seen:
                     continue
                 seen.add(cand)
                 other = sets[cand]
                 if len(this & other) / max(len(this), len(other)) >= overlap:
-                    duplicate = True
+                    duplicate = cand
                     break
-            if duplicate:
+            if duplicate >= 0:
                 break
 
-        if duplicate:
+        if duplicate >= 0:
             keep[pos] = False
+            elim[pos] = duplicate
         else:
             for s in sigs:
                 index.setdefault(s, []).append(pos)
@@ -329,7 +405,13 @@ def near_duplicate_keep(
 
     out = np.ones(len(order), dtype=bool)
     out[order] = keep
-    return out
+    if not return_eliminator:
+        return out
+    # Translate eliminator positions from sorted space back to input space.
+    elim_in = np.full(len(order), -1, dtype=np.int64)
+    has = elim >= 0
+    elim_in[order[has]] = order[elim[has]]
+    return out, elim_in
 
 
 def dedup(
@@ -337,50 +419,181 @@ def dedup(
     near_dupe: bool = True,
     window_days: int = 3,
     overlap: float = 0.90,
-) -> tuple[pd.DataFrame, dict]:
-    """Drop exact `text_norm` repeats within `window_days`, then near-duplicates.
+    return_lineage: bool = False,
+):
+    """Collapse duplicate headlines, keeping a stated representative and lineage.
 
-    Returns the surviving frame plus the counts, so the report can quote a dedup
-    rate instead of asserting one.
+    Implements the [dedup lineage contract](../docs/dedup-lineage-contract.md)
+    (R03b, audit finding A12). Four things changed from the previous version,
+    each of which was reproduced against the running code first.
+
+    **The representative is chosen by a total order**, `(ts_utc,
+    source_row_id)`, not by an unspecified sort. The previous version sorted on
+    `ts_utc` alone with pandas' default quicksort, which is not stable -- and in
+    a date-only corpus *every* headline on a date carries the identical
+    `00:00 UTC` stamp, so every same-day duplicate group was a tie broken by
+    whatever order the rows arrived in. Permuting the real 1.4M-row corpus
+    changed 2,363 surviving ids and the retained ticker tags of 10.78% of
+    survivors. Referencing `source_row_id` -- a position in the pinned raw
+    artifact -- makes the output a function of the input *set*.
+
+    **The exact window re-anchors on the last kept occurrence**, not on the
+    first-ever one. Previously a text repeated on days 0, 1, 10 and 11 kept both
+    day 10 and day 11, because both lie outside three days of day 0; the near
+    pass then removed day 11 and counted it as a *near* duplicate, and with
+    `near_dupe=False` it survived outright. On the real corpus this
+    misattributed 107,485 rows: the true split is 539,087 exact / 4,245 near,
+    not 431,602 / 111,717.
+
+    **Ticker tags are unioned across the cluster.** A story filed under three
+    tickers previously survived with one tag, discarding 75.7% of all distinct
+    (cluster, ticker) pairs corpus-wide, after which `audit.concentration_profile`
+    read the survivors as "companies covered".
+
+    **Lineage is recorded** rather than only counted, so the dedup rate is
+    recomputable from the artifact instead of only reproducible by re-running.
+
+    Returns `(clean, stats)`, or `(clean, stats, lineage)` when
+    `return_lineage=True`. `lineage` has one row per input row.
     """
-    n_in = len(df)
-    df = df.sort_values("ts_utc").reset_index(drop=True)
-
-    # Exact repeats within the window: keep the first occurrence.
-    first_seen = df.groupby("text_norm")["ts_utc"].transform("min")
-    within = (df["ts_utc"] - first_seen) <= pd.Timedelta(days=window_days)
-    is_first = ~df.duplicated("text_norm", keep="first")
-    keep_exact = is_first | ~within
-    df_exact = df[keep_exact].reset_index(drop=True)
-    n_exact_dropped = n_in - len(df_exact)
-
-    n_near_dropped, long_share = 0, 0.0
-    if near_dupe and len(df_exact):
-        keep = near_duplicate_keep(
-            df_exact["text_norm"], df_exact["ts_utc"], window_days, overlap
+    if "source_row_id" not in df.columns:
+        raise ValueError(
+            "dedup requires a 'source_row_id' column: the representative rule is "
+            "(ts_utc, source_row_id), and without it ties fall back to input "
+            "order, which is exactly the defect this implements away (A12). "
+            "Frames from load_news carry it; for one that predates it, call "
+            "data.assign_source_row_ids first, at a point where the row order is "
+            "known to be the pinned artifact's."
         )
-        n_near_dropped = int((~keep).sum())
-        # Exposure of the one-token-difference limit. A pair differing by d
-        # tokens clears the threshold when (L - d) / L >= overlap, i.e. when
-        # L >= d / (1 - overlap). Signatures catch d = 1, so the blind spot is
-        # d >= 2, which needs L >= 2 / (1 - overlap) -- 20 unique tokens at 0.9.
-        min_len_missable = int(np.ceil(2 / (1 - overlap))) if overlap < 1 else 10**9
-        n_tokens = df_exact["text_norm"].str.split().map(lambda x: len(set(x)))
-        long_share = float((n_tokens >= min_len_missable).mean())
-        df_exact = df_exact[keep].reset_index(drop=True)
+    if df["source_row_id"].duplicated().any():
+        raise ValueError("source_row_id must be unique; it identifies a raw row")
+
+    n_in = len(df)
+    df = df.sort_values(["ts_utc", "source_row_id"], kind="stable").reset_index(drop=True)
+
+    if not n_in:
+        empty_lineage = pd.DataFrame(columns=LINEAGE_COLUMNS)
+        stats = {
+            "n_in": 0, "n_out": 0, "n_exact_dropped": 0, "n_near_dropped": 0,
+            "dedup_rate": 0.0, "window_days": window_days,
+            "overlap_threshold": overlap, "share_above_signature_limit": 0.0,
+            "min_len_missable": _missable_token_length(overlap),
+        }
+        return (df, stats, empty_lineage) if return_lineage else (df, stats)
+
+    ts = df["ts_utc"].to_numpy()
+    win = np.timedelta64(window_days, "D")
+    keep = np.ones(n_in, dtype=bool)
+    elim = np.full(n_in, -1, dtype=np.int64)
+    relation = np.array([None] * n_in, dtype=object)
+
+    # --- Exact pass, re-anchored on the last KEPT occurrence.
+    for positions in df.groupby("text_norm", sort=False).indices.values():
+        if len(positions) == 1:
+            continue
+        # The frame is sorted by (ts_utc, source_row_id), so these are already
+        # in time order; sorting again costs nothing and states the assumption.
+        anchor = -1
+        for i in np.sort(positions):
+            if anchor < 0 or (ts[i] - ts[anchor]) > win:
+                anchor = i
+            else:
+                keep[i] = False
+                elim[i] = anchor
+                relation[i] = "exact"
+    n_exact_dropped = int((~keep).sum())
+
+    # --- Near pass, over the exact survivors only.
+    n_near_dropped, long_share = 0, 0.0
+    surv_pos = np.flatnonzero(keep)
+    if near_dupe and len(surv_pos):
+        sub = df.iloc[surv_pos]
+        near_keep, near_elim = near_duplicate_keep(
+            sub["text_norm"], sub["ts_utc"], window_days, overlap,
+            return_eliminator=True,
+        )
+        dropped = ~near_keep
+        n_near_dropped = int(dropped.sum())
+        keep[surv_pos[dropped]] = False
+        elim[surv_pos[dropped]] = surv_pos[near_elim[dropped]]
+        relation[surv_pos[dropped]] = "near"
+
+        min_len = _missable_token_length(overlap)
+        n_tokens = sub["text_norm"].str.split().map(lambda x: len(set(x)))
+        long_share = float((n_tokens >= min_len).mean())
+
+    # --- Clusters. `elim` records the row each duplicate was eliminated
+    # AGAINST, which is not always a survivor: an exact repeat's anchor can
+    # itself be removed later, as a near-duplicate of some earlier headline. So
+    # elimination forms short chains, and the cluster representative is the root
+    # of the chain rather than the immediate eliminator.
+    #
+    # `eliminated_by` in the lineage keeps the immediate step, because that is
+    # what actually happened; `cluster_id` resolves to the survivor.
+    dropped_pos = np.flatnonzero(~keep)
+    if len(dropped_pos) and (elim[dropped_pos] < 0).any():
+        raise AssertionError(
+            "dedup lineage is broken: an eliminated row names no eliminator"
+        )
+    cluster_pos = np.where(keep, np.arange(n_in), elim)
+    for _ in range(64):
+        if not len(dropped_pos) or keep[cluster_pos[dropped_pos]].all():
+            break
+        cluster_pos[dropped_pos] = cluster_pos[cluster_pos[dropped_pos]]
+    else:
+        raise AssertionError(
+            "dedup lineage did not resolve to survivors within 64 hops"
+        )
+
+    hid = df["headline_id"].to_numpy()
+    srid = df["source_row_id"].to_numpy()
+    cluster_id = hid[cluster_pos]
+
+    # --- Union the ticker tags over each cluster.
+    tag_union: dict[int, set] = {}
+    for pos, tags in zip(cluster_pos, df["tickers"]):
+        bucket = tag_union.get(pos)
+        if bucket is None:
+            tag_union[pos] = set(tags)
+        else:
+            bucket.update(tags)
+    sizes = np.bincount(cluster_pos, minlength=n_in)
+
+    clean = df.iloc[surv_all := np.flatnonzero(keep)].copy()
+    clean["tickers"] = [sorted(tag_union[p]) for p in surv_all]
+    clean["cluster_id"] = cluster_id[surv_all]
+    clean["n_cluster_rows"] = sizes[surv_all].astype("int64")
+    clean = clean.reset_index(drop=True)
+    clean = clean.loc[:, [c for c in CLEAN_COLUMNS if c in clean.columns]]
 
     stats = {
         "n_in": n_in,
-        "n_out": len(df_exact),
-        "n_exact_dropped": int(n_exact_dropped),
+        "n_out": len(clean),
+        "n_exact_dropped": n_exact_dropped,
         "n_near_dropped": n_near_dropped,
-        "dedup_rate": 0.0 if n_in == 0 else 1 - len(df_exact) / n_in,
+        "dedup_rate": 0.0 if n_in == 0 else 1 - len(clean) / n_in,
         "window_days": window_days,
         "overlap_threshold": overlap,
         # Share of rows where the blocking could miss a genuine near-duplicate.
         "share_above_signature_limit": long_share,
+        "min_len_missable": _missable_token_length(overlap),
     }
-    return df_exact, stats
+    if not return_lineage:
+        return clean, stats
+
+    lineage = pd.DataFrame(
+        {
+            "source_row_id": srid,
+            "headline_id": hid,
+            "cluster_id": cluster_id,
+            "kept": keep,
+            "eliminated_by": np.where(elim >= 0, srid[elim], -1).astype("int64"),
+            "relation": relation,
+        }
+    ).loc[:, LINEAGE_COLUMNS]
+    lineage.loc[lineage["kept"], "eliminated_by"] = pd.NA
+    lineage["eliminated_by"] = lineage["eliminated_by"].astype("Int64")
+    return clean, stats, lineage
 
 
 def trading_calendar(start: str, end: str) -> pd.DatetimeIndex:

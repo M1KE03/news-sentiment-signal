@@ -23,9 +23,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import config
 from src import scoring
 
-# Deliberately includes the cases the lexicons are expected to fail (Stage 1,
+# Deliberately includes the cases the lexicons were EXPECTED to fail (Stage 1,
 # step 4): the LM-neutral "liability provisions", the word-count-negative but
-# actually-positive "costs fell sharply", and the negated "smaller than feared".
+# arguably-positive "costs fell sharply", and the negated "smaller than feared".
+#
+# Recorded 2026-09-09, on the first run with torch executable: FinBERT fails the
+# second and third of those too, both with P(negative) > 0.92. These are six
+# invented sentences and they measure nothing; Act 1 measures classification
+# quality on independently annotated corpus text.
 SPOT_CHECK = [
     "Company reports increased liability provisions",
     "Costs fell sharply in the third quarter",
@@ -64,8 +69,13 @@ def test_lm_sign_follows_word_counts(lm):
 
 
 def test_lm_fails_on_costs_fell_sharply_as_documented(lm):
-    # Not a bug -- the point of Exhibit A. A word counter cannot see the verb,
-    # so a fall in *costs* reads negative. This is the gap FinBERT should close.
+    # Not a bug -- a word counter cannot see the verb, so a fall in *costs*
+    # reads negative. The behaviour of the lexicon is the claim being tested.
+    #
+    # The sentence "This is the gap FinBERT should close" was removed on
+    # 2026-09-09: FinBERT also calls this headline negative (P = 0.932), so the
+    # gap is not closed here. See
+    # `test_finbert_predictions_match_the_recorded_characterization`.
     assert lm.score(["Costs fell sharply in the third quarter"])[0] < 0
 
 
@@ -251,13 +261,56 @@ def test_finbert_predict_retains_the_neutral_mass(finbert, monkeypatch):
     np.testing.assert_allclose(finbert.score(["a", "b"]), [0.4, 0.4], atol=1e-6)
 
 
-def test_finbert_gets_the_documented_hard_cases_right(finbert):
-    """Exhibit A's point: context models see what a word counter cannot."""
+# What FinBERT actually predicts on SPOT_CHECK, recorded 2026-09-09 against
+# config.FINBERT_REVISION on the first run in which torch was executable.
+# This is a CHARACTERIZATION record, not a statement that these labels are
+# correct. Its job is to fail when the checkpoint, the revision or the label
+# ordering changes -- nothing more.
+FINBERT_OBSERVED = {
+    "Company reports increased liability provisions": "negative",
+    "Costs fell sharply in the third quarter": "negative",
+    "Profit warning smaller than feared": "negative",
+    "Quarterly profit beats expectations": "positive",
+    "Shares plunge after weak guidance": "negative",
+    "Board announces no change to the dividend": "neutral",
+}
+
+
+def test_finbert_label_order_contract_holds_on_real_text(finbert):
+    """B12's label-order pin, checked against the running checkpoint.
+
+    `ProsusAI/finbert` publishes `{0: positive, 1: negative, 2: neutral}`, which
+    is not the conventional order, so index-based code inverts every score
+    (B03). These two headlines are unambiguous in opposite directions, so if the
+    published order ever changed underneath the pin, one of them would flip.
+    That is the whole claim being made here.
+    """
     got = dict(zip(SPOT_CHECK, finbert.predict(SPOT_CHECK)))
-    # "Costs fell sharply" is word-count-negative but actually good news.
-    assert got["Costs fell sharply in the third quarter"] != "negative"
     assert got["Quarterly profit beats expectations"] == "positive"
     assert got["Shares plunge after weak guidance"] == "negative"
+
+
+def test_finbert_predictions_match_the_recorded_characterization(finbert):
+    """Detects a changed model, revision or label mapping. Asserts no quality.
+
+    **This test previously asserted that FinBERT would NOT call "Costs fell
+    sharply in the third quarter" negative** -- Exhibit A's premise that a
+    context model sees what a word counter cannot. It had never executed,
+    because Smart App Control blocked torch. On its first real run it failed:
+    FinBERT calls that headline negative with P(neg) = 0.932, and calls
+    "Profit warning smaller than feared" negative with P(neg) = 0.924. Both are
+    the cases the fixture was built to demonstrate, and on both FinBERT agrees
+    with the word counter it was supposed to beat.
+
+    The assertion was removed rather than inverted. Six invented sentences
+    cannot establish classification quality in either direction; that is what
+    Act 1's independently annotated evaluation exists to measure, under the
+    [validation protocol](../docs/validation-protocol.md). Asserting the
+    expected outcome here was the same predetermined-finding pattern that P24
+    removed from the figure titles.
+    """
+    got = dict(zip(SPOT_CHECK, finbert.predict(SPOT_CHECK)))
+    assert got == FINBERT_OBSERVED
 
 
 # --------------------------------------------------------------------------

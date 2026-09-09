@@ -176,6 +176,26 @@ def test_dedup_step_produces_the_analysis_input(offline, tmp_path, monkeypatch):
     assert man["rows_in"] == 3 and man["rows_out"] == 2
     assert man["source_manifest"]["sha256"] == CSV_SHA
 
+    # R03b: the collapsed row keeps BOTH tickers it was filed under, instead of
+    # discarding the loser's tag with its row.
+    collapsed = out[out["n_cluster_rows"] == 2]
+    assert len(collapsed) == 1
+    assert sorted(collapsed["tickers"].iloc[0]) == ["AAPL", "MSFT"]
+
+    # R03b: lineage lands BESIDE the corpus it describes, and accounts for every
+    # raw row. Writing it to `config.DEDUP_LINEAGE_PARQUET` instead meant this
+    # very test deposited a stray artifact in the real `data/interim`, next to
+    # the frozen corpus, while publishing into tmp_path.
+    lin_path = dl.lineage_path(clean)
+    assert lin_path.parent == clean.parent
+    assert not config.DEDUP_LINEAGE_PARQUET.exists(), (
+        "lineage was written to the configured path instead of beside `out`"
+    )
+    lineage = pd.read_parquet(lin_path)
+    assert len(lineage) == 3
+    assert int(lineage["kept"].sum()) == 2
+    assert man["lineage"] == lin_path.name
+
 
 def test_dedup_refuses_an_unverified_raw_corpus(tmp_path, monkeypatch):
     """A clean artifact may not be derived from provenance nobody recorded."""
