@@ -72,6 +72,39 @@ def fit_thresholds(
     return best
 
 
+def predictions_for(scorer, texts, thresholds: tuple[float, float] | None = None):
+    """Class labels for one scorer, by the route that scorer actually supports (B12).
+
+    A classifier (FinBERT) predicts by argmax over its own class probabilities.
+    A lexicon predicts by a neutral band fitted on the calibration split. The
+    two routes are not interchangeable and this function refuses to swap them:
+
+    * thresholding a classifier would discard the neutral probability -- which
+      is exactly what decides the label when `P(pos) - P(neg)` is ambiguous --
+      and would additionally impose a tuned band on the one scorer that needs
+      no tuning, quietly removing the asymmetry the report is meant to state;
+    * argmaxing a lexicon is not defined: it produces a single number, not a
+      distribution over classes.
+    """
+    if hasattr(scorer, "predict"):
+        if thresholds is not None:
+            raise ValueError(
+                f"{getattr(scorer, 'name', scorer)!r} is a classifier: it predicts by "
+                "argmax over its own class probabilities. Passing a neutral band "
+                "would discard the neutral probability and impose a fitted "
+                "threshold on a scorer that requires none."
+            )
+        return np.asarray(scorer.predict(texts))
+
+    if thresholds is None:
+        raise ValueError(
+            f"{getattr(scorer, 'name', scorer)!r} is a lexicon: it needs a neutral "
+            "band fitted on the calibration split (fit_thresholds), because a "
+            "continuous score alone does not determine a class."
+        )
+    return classify(np.asarray(scorer.score(texts)), thresholds)
+
+
 def evaluate(
     scores: np.ndarray, labels: np.ndarray, thresholds: tuple[float, float] | None = None
 ) -> dict:

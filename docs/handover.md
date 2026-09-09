@@ -12,7 +12,7 @@ Related: [implementation plan](implementation-plan.md) (B01–B28) · [decision 
 
 The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: 869,205 deduplicated Benzinga headlines over 2,516 trading sessions, with D4 now frozen on coverage evidence. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
 
-**107 tests pass, 2 skip** (the skips are VADER and FinBERT, which are optional until scoring begins).
+**120 tests pass, 7 skip** (the skips are VADER and FinBERT, which are optional until scoring begins).
 
 ## 2. What the study is
 
@@ -140,9 +140,9 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 |---|---|---|---|
 | B10 | PhraseBank loader compatibility | ⬜ | `datasets==4.0.0` removed dataset scripts and `trust_remote_code`; `src/validate.load_phrasebank` will not run as pinned. Needed only if the §2 fallback is used |
 | B11 | Prediction-blind annotation sample | ⬜ | Blocked on corpus assembly. **External dependency: human labelling** |
-| B12 | FinBERT class probabilities | ⬜ | Must preserve the verified label order |
-| B13 | Scoring-provenance / cache invalidation | ⬜ | |
-| B14 | Batch checkpoints, resumable scoring | ⬜ | |
+| B12 | FinBERT class probabilities | ✅ | `scoring.Classifier`, `predict_proba`/`predict`, `validate.predictions_for`; label order checked against the pin at construction |
+| B13 | Scoring-provenance / cache invalidation | ✅ | `fingerprint` per scorer, `.meta.json` sidecar, `IncompatibleCache` |
+| B14 | Batch checkpoints, resumable scoring | ✅ | atomic checkpointed writes; interruption test |
 | B15 | Paired classification uncertainty | ⬜ | Specified in B01 §7 |
 
 ### Phase D — panel and inference
@@ -160,7 +160,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | ID | Task | Status |
 |---|---|---|
 | B21 | Derivation + simulation | ⬜ |
-| B22 | Scoring pilot and extrapolation | ⬜ |
+| B22 | Scoring pilot and extrapolation | ⛔ **blocked** — torch DLLs refused by Smart App Control |
 | B23 | Bounded, resumable scoring run | ⬜ |
 | B24 | Independent classification results | ⬜ |
 | B25 | Core panel and primary market results | ⬜ |
@@ -216,7 +216,7 @@ In parallel and independent of scoring: **B12** (FinBERT class probabilities, pr
 | **Loughran–McDonald dictionary** not obtained | Any LM scoring; Act 1 | Download by hand from the Notre Dame SRAF site (no stable link) into `data/raw/LoughranMcDonald_MasterDictionary.csv`, then record the release in `config.LM_DICT_VERSION` |
 | **Human annotation** not started | B11, B15, B24, all of Act 1 | Needs a named annotator; ideally a second on a 20% subset for kappa. Protocol is written and executable |
 | ~~Window not frozen~~ | — | **Resolved**: frozen 2026-09-09 on the census |
-| `torch` / `transformers` not installed | B22, B23, all scoring | `pip install torch transformers vaderSentiment` |
+| **Smart App Control blocks `torch`** | B22, B23, all FinBERT scoring | `torch` is installed but `WinError 4551` refuses `torch/lib/c10.dll`. Turn off Smart App Control in Windows Security -> App & browser control. Not fixable from the code. `transformers` and `vaderSentiment` work |
 | `datasets==4.0.0` loader | B10, PhraseBank fallback only | Not on the critical path unless annotation fails |
 
 ## 7. Environment notes
