@@ -33,23 +33,48 @@ def nw_ols(y, X, maxlags: int = config.NW_MAXLAGS):
     return sm.OLS(yy, XX).fit(cov_type="HAC", cov_kwds={"maxlags": maxlags})
 
 
-def contemporaneous(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLAGS):
-    """Section 6.1: ret_t on S_t plus lagged return, volatility and turnover.
+LAG_COLUMNS = ("ret_lag1", "parkinson_lag1", "log_turnover_lag1")
 
-    Reported as association, not causation, in that language. This doubles as
-    the pipeline's sanity check: if the same-day association is absent,
-    something upstream is broken -- check alignment before believing it.
+
+def _require_lags(panel: pd.DataFrame) -> None:
+    """Refuse to run if the lag columns were not built on the full calendar.
+
+    These must come from `align.build_panel`, which constructs them before any
+    exclusion. Shifting inside a regression function computes the lag over the
+    *retained* rows, so a Wednesday whose Tuesday was dropped as a zero-news
+    session would take Monday's return as its lag -- a silently different
+    control (B05/P12). Recomputing them here would reintroduce exactly that.
     """
-    df = panel
+    missing = [c for c in LAG_COLUMNS if c not in panel.columns]
+    if missing:
+        raise KeyError(
+            f"panel is missing full-calendar lag column(s) {missing}. Build the "
+            "panel with align.build_panel; do not shift inside a regression, "
+            "which would lag over retained rows rather than trading sessions."
+        )
+
+
+def contemporaneous(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLAGS):
+    """Section 6.1: ret_t on S_t plus lagged return, range variance and volume.
+
+    Reported as association, not causation, in that language. Its absence is
+    not evidence that the pipeline is broken (P23): a weak contemporaneous
+    association can equally reflect aggregation, the chosen universe, or
+    measurement noise, and is investigated as such rather than by adjusting the
+    pipeline until it appears.
+
+    Controls are read from the panel, never shifted here -- see `_require_lags`.
+    """
+    _require_lags(panel)
     X = pd.DataFrame(
         {
-            f"s_{scorer}": df[f"s_{scorer}"],
-            "ret_lag1": df["ret"].shift(1),
-            "parkinson_lag1": df["parkinson"].shift(1),
-            "log_turnover_lag1": df["log_turnover"].shift(1),
+            f"s_{scorer}": panel[f"s_{scorer}"],
+            "ret_lag1": panel["ret_lag1"],
+            "parkinson_lag1": panel["parkinson_lag1"],
+            "log_turnover_lag1": panel["log_turnover_lag1"],
         }
     )
-    return nw_ols(df["ret"], X, maxlags=maxlags)
+    return nw_ols(panel["ret"], X, maxlags=maxlags)
 
 
 def predictive(panel: pd.DataFrame, scorer: str, horizon: int, maxlags: int = config.NW_MAXLAGS):

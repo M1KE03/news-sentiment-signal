@@ -72,6 +72,24 @@ def build_panel() -> pd.DataFrame:
     daily = align.aggregate_daily(scores, headlines, calendar)
     panel = align.build_panel(daily, market)
 
+    # Row shifts are session shifts only if the panel is the complete calendar.
+    # Check it here, where the calendar is in scope, rather than trusting it.
+    align.assert_sessions_match_calendar(panel, calendar)
+
+    stats = panel.attrs.get("build_stats", {})
+    print(
+        f"panel built: {stats.get('n_sessions', len(panel))} sessions, "
+        f"{stats.get('n_missing_market', 0)} with no market row"
+    )
+    if stats.get("n_missing_market"):
+        print(
+            "  sessions absent from the market data (first 10): "
+            f"{stats['missing_market_dates']}\n"
+            "  their leads are NaN and they are excluded at the eligibility "
+            "stage; if this count is not small it is a data-quality finding "
+            "about the price source and belongs in the write-up."
+        )
+
     config.PANEL_PARQUET.parent.mkdir(parents=True, exist_ok=True)
     panel.to_parquet(config.PANEL_PARQUET, index=False)
     return panel

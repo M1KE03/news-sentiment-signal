@@ -17,11 +17,12 @@ PANEL_COLUMNS = (
     ["date", "n_headlines"]
     + [f"s_{n}" for n in config.SCORERS]
     + [f"d_{n}" for n in config.SCORERS]
-    + ["ret"]
+    + ["ret", "ret_lag1"]
     + [f"ret_lead{h}" for h in config.HORIZONS]
-    + ["parkinson", "parkinson_lead1"]
-    + ["log_turnover", "log_turnover_detrended", "log_turnover_detrended_lead1"]
-    + ["vix_close"]
+    + ["parkinson", "parkinson_lag1", "parkinson_lead1"]
+    + ["log_turnover", "log_turnover_lag1"]
+    + ["log_turnover_detrended", "log_turnover_detrended_lead1"]
+    + ["close_adj", "vix_close"]
 )
 
 
@@ -95,27 +96,96 @@ def aggregate_daily(
     return daily.reset_index()
 
 
+def assert_sessions_match_calendar(panel: pd.DataFrame, calendar: pd.DatetimeIndex) -> None:
+    """The panel's dates must be exactly the exchange calendar, in order.
+
+    `build_panel` builds every lag and lead by shifting rows, which is only the
+    same thing as shifting *sessions* when the frame is the complete calendar.
+    That premise is checked here rather than assumed, wherever a calendar is in
+    scope (`run_all.py`).
+    """
+    sessions = pd.DatetimeIndex(calendar).normalize()
+    if sessions.tz is not None:
+        sessions = sessions.tz_localize(None)
+    dates = pd.DatetimeIndex(pd.to_datetime(panel["date"])).normalize()
+    if not dates.equals(sessions):
+        missing = sessions.difference(dates)
+        extra = dates.difference(sessions)
+        raise AssertionError(
+            "panel dates are not the exchange calendar: "
+            f"{len(missing)} session(s) missing (first: "
+            f"{missing[0].date() if len(missing) else '-'}), "
+            f"{len(extra)} unexpected date(s) (first: "
+            f"{extra[0].date() if len(extra) else '-'}). "
+            "Row shifts would not equal session shifts."
+        )
+
+
 def build_panel(
     daily_scores: pd.DataFrame, market: pd.DataFrame, turnover_window: int = 63
 ) -> pd.DataFrame:
-    """Join the daily scores to market data and add every lead. §4 schema.
+    """Join market data onto the calendar-indexed daily scores; build lags and leads.
 
-    Turnover is detrended against a **trailing-only** rolling mean: a centred
-    window would leak future volume into day t, which is the same class of bug
-    the lead columns exist to make visible.
+    `daily_scores` must span the **complete exchange calendar** -- `aggregate_daily`
+    guarantees that by reindexing to it. That is what makes a row shift equal a
+    session shift, and it is why the join below is a LEFT join onto the daily
+    frame rather than an inner join.
+
+    An inner join was the earlier bug (B05, defect D-2): a session missing from
+    the market frame was dropped, and the subsequent `.shift(-1)` reached across
+    the hole, so `ret_lead1` silently became a two-session return for an unknown
+    subset of rows. With a left join the session survives with NaN market
+    columns, the lead for the preceding row is NaN, and the observation is
+    excluded at the eligibility stage where the exclusion is counted.
+
+    Lags are built here too, on the full calendar, for the same reason: a
+    regression function that shifts inside its own frame would compute the lag
+    *after* zero-news sessions had been excluded, so a Wednesday whose Tuesday
+    was dropped would silently take Monday's return as its lag (B05/P12).
+
+    Turnover is detrended against a **trailing-only** rolling mean; a centred
+    window would leak future volume into day t.
+
+    `panel.attrs["build_stats"]` carries the missing-market-session counts.
     """
     market = market.copy()
     market["date"] = pd.to_datetime(market["date"]).dt.normalize()
     daily_scores = daily_scores.copy()
     daily_scores["date"] = pd.to_datetime(daily_scores["date"]).dt.normalize()
+    daily_scores = daily_scores.sort_values("date").reset_index(drop=True)
 
-    panel = market.merge(daily_scores, on="date", how="inner").sort_values("date")
+    if daily_scores["date"].duplicated().any():
+        raise ValueError("daily_scores contains duplicate sessions")
+    if not daily_scores["date"].is_monotonic_increasing:
+        raise ValueError("daily_scores is not sorted by date")
+
+    n_sessions = len(daily_scores)
+    panel = daily_scores.merge(market, on="date", how="left")
+    if len(panel) != n_sessions:
+        raise AssertionError(
+            f"joining market data changed the session count "
+            f"({n_sessions} -> {len(panel)}); the market frame has duplicate dates"
+        )
     panel = panel.reset_index(drop=True)
+
+    missing_market = panel["ret"].isna() if "ret" in panel else pd.Series(True, index=panel.index)
+    panel.attrs["build_stats"] = {
+        "n_sessions": int(n_sessions),
+        "n_missing_market": int(missing_market.sum()),
+        "missing_market_dates": [
+            str(d.date()) for d in panel.loc[missing_market, "date"].head(10)
+        ],
+    }
 
     roll = panel["log_turnover"].rolling(turnover_window, min_periods=turnover_window).mean()
     panel["log_turnover_detrended"] = panel["log_turnover"] - roll
 
-    # The single shift. Every forward-looking column in the project is made here.
+    # Lags and leads: the only place either is constructed. Every shift below is
+    # a shift over the complete calendar, so it is a shift in trading sessions.
+    panel["ret_lag1"] = panel["ret"].shift(1)
+    panel["parkinson_lag1"] = panel["parkinson"].shift(1)
+    panel["log_turnover_lag1"] = panel["log_turnover"].shift(1)
+
     for h in config.HORIZONS:
         panel[f"ret_lead{h}"] = panel["ret"].shift(-h)
     panel["parkinson_lead1"] = panel["parkinson"].shift(-1)
@@ -124,4 +194,6 @@ def build_panel(
     for c in PANEL_COLUMNS:
         if c not in panel.columns:
             panel[c] = np.nan
-    return panel.loc[:, PANEL_COLUMNS]
+    out = panel.loc[:, PANEL_COLUMNS]
+    out.attrs["build_stats"] = panel.attrs["build_stats"]
+    return out
