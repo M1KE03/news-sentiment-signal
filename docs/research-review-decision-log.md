@@ -2,7 +2,17 @@
 
 Recorded: 2026-09-09.
 
-Last updated: 2026-09-09, after audit repair R01b. B22 remains blocked on the environment; checkpoint consistency work precedes scoring.
+Last updated: 2026-09-09, after R01c specification. Architecture approval for R01d is pending; B22 remains blocked on the environment.
+
+## Audit repair checkpoint — R01c
+
+**Authorization:** user requested "do r01c". This is the contract-proposal increment, not its implementation.
+
+**Specification:** wrote [scoring-checkpoint-contract.md](scoring-checkpoint-contract.md). Proposed one Parquet artifact containing versioned embedded metadata, one same-directory replacement commit point, a process-held writer lock, consistent single-open reads, explicit failure/recovery states, legacy refusal without automatic migration, and the narrow runner reader change needed to enforce the new contract. Preserves public score columns and cache path. Defines R01d interruption and process-contention tests; explicitly excludes power-loss and disk-corruption recovery guarantees.
+
+**Verification:** inspected existing writers/readers; a disposable one-row probe confirmed metadata embedding and pandas/Arrow round-trip compatibility on installed PyArrow 25.0.1. This does not verify crash behavior or the declared environment. Documentation links and diff whitespace checked. No production code, empirical data, environment or Git writes changed.
+
+**Decision pending:** approval of this concrete contract under implementation-plan §5. R01d is next after approval; it may split format/reader implementation from locking and fault-injection verification to preserve bounded increments.
 
 ## Audit repair checkpoint — R01b
 

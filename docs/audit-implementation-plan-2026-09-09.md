@@ -4,13 +4,17 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
-**R01b completed and fixture-tested (latest).** Default calls validate all configured scorer identities even when every value is cached. LM/VADER identities require their local lexicons; FinBERT's expected identity uses its pinned configuration without importing torch or loading weights. Any loaded scorer is checked against the preflight identity before writes. Explicit scorer subsets validate those selected measurements.
+**R01c specification complete; architecture approval pending (latest).** The [checkpoint contract](scoring-checkpoint-contract.md) proposes embedding provenance in the score Parquet file, one replacement commit point, a process-held writer lock, explicit legacy-cache refusal and a narrow validated reader update in `run_all.py`. It specifies metadata fields, interruption states, recovery and R01d acceptance tests. A disposable Arrow metadata round-trip succeeded; no production code changed. R01d implements the proposal after approval under the existing architecture gate.
+
+### Previous checkpoint: R01b
+
+**R01b completed and fixture-tested.** Default calls validate all configured scorer identities even when every value is cached. LM/VADER identities require their local lexicons; FinBERT's expected identity uses its pinned configuration without importing torch or loading weights. Any loaded scorer is checked against the preflight identity before writes. Explicit scorer subsets validate those selected measurements.
 
 The cache parquet now carries `text_sha256`, the SHA-256 of the exact UTF-8 scoring text. The returned score frame retains its existing columns. Populated legacy caches without text identity require rebuilding to a new path; their identity is never inferred from current text. Changed text refuses reuse by default; explicit rescore invalidates all scorer values for the affected IDs. Changed scorer fingerprints invalidate that entire cached column, including rows outside the request. All selected identities are checked before any scoring/checkpoint, and duplicate/null IDs are rejected.
 
 Verification: eight new regression cases, including default completed-cache checks without model loading, selective scorer construction, raw-text change detection, missing text identity, preflight ordering and interrupted subset resumption. Full suite **141 passed, 7 skipped** (the existing PyTorch DLL block); `git diff --check` passed. No corpus scoring or Git writes.
 
-**Next: R01c, the checkpoint consistency contract proposal.** Data and metadata remain separate writes; R01b does not solve interruption between those writes. Input and scorer checks in the analysis runner remain R04b/R15. Broader fingerprint completeness (e.g. VADER lexicon-content hashing and implementation versioning) remains an audit follow-up.
+R01c is now specified above. Data and metadata remain separate writes until R01d implements the approved contract. Full input and scorer checks in the analysis runner remain R04b/R15. Broader fingerprint completeness (e.g. VADER lexicon-content hashing and implementation versioning) remains an audit follow-up.
 
 ### Previous checkpoint: R01a
 
