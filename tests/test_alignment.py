@@ -134,21 +134,21 @@ def test_no_headline_after_close_contributes_to_that_day():
 
 def test_aggregate_daily_respects_the_dispersion_floor():
     headlines, scores = _synthetic_headlines(n_per_day=3)
-    daily = align.aggregate_daily(scores, headlines, CALENDAR)
+    daily = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False)
     thin = daily["n_headlines"] < config.MIN_HEADLINES_FOR_DISPERSION
     assert daily.loc[thin, [f"d_{s}" for s in config.SCORERS]].isna().all().all()
 
 
 def test_aggregate_daily_covers_every_session():
     headlines, scores = _synthetic_headlines()
-    daily = align.aggregate_daily(scores, headlines, CALENDAR)
+    daily = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False)
     assert list(daily["date"]) == list(CALENDAR)
     assert daily["n_headlines"].ge(0).all()
 
 
 def test_leads_are_pure_shifts_and_never_leak():
     headlines, scores = _synthetic_headlines()
-    daily = align.aggregate_daily(scores, headlines, CALENDAR)
+    daily = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False)
     market = pd.DataFrame(
         {
             "date": CALENDAR,
@@ -281,3 +281,164 @@ def test_trading_calendar_excludes_market_holidays():
     assert pd.Timestamp("2015-11-26") not in cal      # Thanksgiving
     assert pd.Timestamp("2015-11-27") in cal          # half-day, still a session
     assert len(cal) == 252
+
+
+# --------------------------------------------------------------------------
+# B09a: the date-only fallback mapper.
+# --------------------------------------------------------------------------
+
+
+def dated(day: str, **kw) -> pd.Timestamp:
+    return align.map_date_to_session(pd.Series([pd.Timestamp(day)]), CALENDAR, **kw).iloc[0]
+
+
+def test_deferred_rule_sends_a_session_date_to_the_following_session():
+    # Mon 07-01 is itself a session; deferring means Tue 07-02, never 07-01.
+    assert dated("2024-07-01") == pd.Timestamp("2024-07-02")
+
+
+def test_deferred_rule_skips_a_holiday():
+    # Wed 07-03; Thu 07-04 is a holiday, so the next session is Fri 07-05.
+    assert dated("2024-07-03") == pd.Timestamp("2024-07-05")
+
+
+def test_deferred_rule_sends_friday_to_monday():
+    assert dated("2024-07-05") == pd.Timestamp("2024-07-08")
+
+
+def test_deferred_rule_rolls_the_weekend_forward():
+    assert dated("2024-07-06") == pd.Timestamp("2024-07-08")   # Saturday
+    assert dated("2024-07-07") == pd.Timestamp("2024-07-08")   # Sunday
+
+
+def test_deferred_rule_has_no_session_after_the_last_one():
+    assert pd.isna(dated("2024-07-09"))
+    assert pd.isna(dated("2024-07-20"))
+
+
+def test_deferred_rule_drops_pre_window_dates():
+    """The D-1 edge, in the date-only mapper too."""
+    for day in ("2010-01-04", "2024-06-14", "2024-06-27"):
+        assert pd.isna(dated(day)), f"{day} must not land on the first session"
+
+
+def test_prior_session_populates_the_first_session():
+    # Session 0 takes dates in [prior_session, session_0).
+    assert dated("2024-06-28", prior_session="2024-06-28") == pd.Timestamp("2024-07-01")
+    assert pd.isna(dated("2024-06-27", prior_session="2024-06-28"))
+
+
+def test_secondary_rule_maps_a_session_date_to_itself():
+    """The as-if-intraday sensitivity: assumes same-date news precedes the close."""
+    assert dated("2024-07-01", defer=False) == pd.Timestamp("2024-07-01")
+    assert dated("2024-07-03", defer=False) == pd.Timestamp("2024-07-03")
+    # A non-session date still rolls forward under either rule.
+    assert dated("2024-07-04", defer=False) == pd.Timestamp("2024-07-05")
+    assert dated("2024-07-06", defer=False) == pd.Timestamp("2024-07-08")
+
+
+def test_the_two_rules_differ_by_exactly_one_session_on_session_dates():
+    dates = pd.Series([pd.Timestamp(d) for d in ("2024-07-01", "2024-07-02", "2024-07-03")])
+    primary = align.map_date_to_session(dates, CALENDAR, defer=True)
+    secondary = align.map_date_to_session(dates, CALENDAR, defer=False)
+    assert (primary > secondary).all(), "deferring must never be the earlier session"
+
+
+def test_utc_midnight_stamps_keep_their_published_date():
+    """The timezone trap the mapper exists to avoid.
+
+    A 00:00 UTC stamp is 20:00 ET on the *previous* day. Reading the date in
+    market time would move every headline back one calendar day before the
+    mapping starts, so the mapper must read the source clock.
+    """
+    utc = pd.Series([pd.Timestamp("2024-07-02 00:00", tz="UTC")])
+    assert align.map_date_to_session(utc, CALENDAR).iloc[0] == pd.Timestamp("2024-07-03")
+
+    # What converting first would have done: 2024-07-01 20:00 ET -> dated 07-01
+    # -> mapped to 07-02. One session early, silently.
+    et_converted = utc.dt.tz_convert(config.TZ_MARKET)
+    assert (
+        align.map_date_to_session(et_converted, CALENDAR).iloc[0]
+        == pd.Timestamp("2024-07-02")
+    )
+
+
+def test_deferred_mapper_refuses_intraday_input():
+    rng = np.random.default_rng(config.SEED)
+    cal = pd.DatetimeIndex(pd.bdate_range("2015-01-01", "2016-12-31"))
+    stamps = pd.Series(
+        [
+            pd.Timestamp(d, tz="UTC") + pd.Timedelta(minutes=int(rng.integers(0, 1440)))
+            for d in cal[:300]
+        ]
+    )
+    with pytest.raises(ValueError, match="intraday timestamps"):
+        align.map_date_to_session(stamps, cal)
+
+
+def test_deferred_mapper_accepts_a_real_date_only_series():
+    days = pd.date_range("2015-01-01", periods=400, freq="D", tz="UTC")
+    cal = pd.DatetimeIndex(pd.bdate_range("2015-01-01", "2016-12-31"))
+    got = align.map_date_to_session(pd.Series(days), cal)
+    assert got.notna().sum() > 350
+
+
+# ------------------------------------------------ aggregate_daily dispatch
+
+
+def _date_only_headlines(n_per_day: int = 6, seed: int = config.SEED):
+    """FNSPID-shaped rows: every stamp at 00:00 UTC, both clocks present."""
+    rng = np.random.default_rng(seed)
+    days = [d for d in pd.date_range("2024-06-28", "2024-07-09", freq="D")
+            for _ in range(n_per_day)]
+    ts_utc = pd.Series([pd.Timestamp(d, tz="UTC") for d in days])
+    headlines = pd.DataFrame(
+        {
+            "headline_id": [f"h{i:04d}" for i in range(len(ts_utc))],
+            "ts_utc": ts_utc,
+            "ts_et": ts_utc.dt.tz_convert(config.TZ_MARKET),
+        }
+    )
+    scores = pd.DataFrame(
+        {"headline_id": headlines["headline_id"]}
+        | {f"score_{s}": rng.uniform(-1, 1, len(headlines)) for s in config.SCORERS}
+    )
+    return headlines, scores
+
+
+def test_aggregate_daily_uses_the_deferred_mapper_in_date_only_mode():
+    headlines, scores = _date_only_headlines()
+    daily = align.aggregate_daily(scores, headlines, CALENDAR, date_only=True)
+    assert list(daily["date"]) == list(CALENDAR)
+    # Session t receives dates in [prev_session, t), so 07-02 takes exactly the
+    # 07-01 headlines. The first session gets nothing: its window opens at a
+    # session outside the calendar, and 06-28..06-30 are therefore dropped.
+    counts = daily.set_index("date")["n_headlines"]
+    assert counts.loc[pd.Timestamp("2024-07-01")] == 0
+    assert counts.loc[pd.Timestamp("2024-07-02")] == 6
+    # 07-05 takes [07-03, 07-05): the 07-03 headlines *and* the 07-04 holiday's.
+    assert counts.loc[pd.Timestamp("2024-07-05")] == 12
+    assert counts.loc[pd.Timestamp("2024-07-08")] == 18     # 07-05, Sat 07-06, Sun 07-07
+    # Nothing is lost or double-counted: every non-dropped headline lands once.
+    assert counts.sum() == 6 * 8                            # 07-01 .. 07-08 inclusive
+
+
+def test_aggregate_daily_requires_the_source_clock_in_date_only_mode():
+    headlines, scores = _date_only_headlines()
+    with pytest.raises(KeyError, match="ts_utc"):
+        align.aggregate_daily(
+            scores, headlines.drop(columns=["ts_utc"]), CALENDAR, date_only=True
+        )
+
+
+def test_aggregate_daily_intraday_mode_is_unchanged():
+    headlines, scores = _synthetic_headlines()
+    daily = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False)
+    assert list(daily["date"]) == list(CALENDAR)
+
+
+def test_aggregate_daily_defaults_to_the_configured_fallback():
+    headlines, scores = _date_only_headlines()
+    daily = align.aggregate_daily(scores, headlines, CALENDAR)   # no date_only arg
+    assert config.DATE_ONLY_FALLBACK is True
+    assert daily.set_index("date")["n_headlines"].loc[pd.Timestamp("2024-07-01")] == 0

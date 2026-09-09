@@ -122,18 +122,162 @@ def map_to_trading_day(
     return days
 
 
+def _reject_intraday(ts: pd.Series) -> None:
+    """Mirror of `_reject_date_only`: the deferred mapper refuses real times.
+
+    Thresholds are `audit`'s, so the two mappers agree on what "date-only"
+    means. The test is written out here rather than calling
+    `audit.timestamp_profile` because these timestamps may be tz-naive dates.
+    """
+    if len(ts) < DATE_ONLY_CHECK_MIN_N:
+        return
+    from src import audit
+
+    minute = ts.dt.hour * 60 + ts.dt.minute
+    modal_share = float(minute.value_counts().iloc[0] / len(ts))
+    looks_date_only = (
+        modal_share >= audit.DATE_ONLY_SHARE
+        or minute.nunique() < audit.MIN_DISTINCT_MINUTES
+    )
+    if not looks_date_only:
+        raise ValueError(
+            f"map_date_to_session received intraday timestamps "
+            f"({minute.nunique()} distinct minutes-of-day, modal minute only "
+            f"{modal_share:.1%}). Deferring them would discard a time-of-day the "
+            "data actually has. Use map_to_trading_day instead."
+        )
+
+
+def map_date_to_session(
+    dates: pd.Series,
+    calendar: pd.DatetimeIndex,
+    defer: bool = True,
+    prior_session: pd.Timestamp | str | None = None,
+    check_intraday: bool = True,
+) -> pd.Series:
+    """Date-only fallback mapping (B05 §2). A headline dated d -> a trading session.
+
+    **`dates` must be in the zone the source published in, not market time.**
+    The function reads the wall-clock date and never converts. FNSPID's stamps
+    are `00:00 UTC`; converting them to America/New_York would make them 19:00
+    or 20:00 on the *previous* calendar day, shifting every headline back a day
+    before the mapping even begins. Pass `ts_utc`, not `ts_et`.
+
+    **Primary rule (`defer=True`)** -- the first session beginning *strictly
+    after* date d. Session t therefore receives dates in `[prev_session, t)`.
+
+    With a date-only stamp the headline may have been published at 23:59 on d,
+    so only the close of the first session after d is guaranteed to postdate all
+    of day d. That is what keeps S_t inside the information set at close(t),
+    which is where the return window for r_(t+1) begins. The cost is real and is
+    stated in the report rather than hidden: the session in which the reaction
+    most plausibly occurs is skipped, so the specification tests whether one-to-
+    three-day-old news is associated with returns.
+
+    **Secondary rule (`defer=False`)** -- the first session at or after d, so a
+    date that is itself a session maps to that session. This is the
+    specification most of the literature uses, and it assumes every headline
+    dated d preceded that session's close, which the B03 audit contradicts for a
+    share of the corpus. It is a **sensitivity exhibit only** and never the
+    headline result.
+
+    Both calendar edges return NaT, as in `map_to_trading_day`, and for the same
+    reason: the first session's window opens at the previous session, which lies
+    outside `calendar`. Supply `prior_session` to populate it.
+    """
+    d = pd.to_datetime(pd.Series(dates).reset_index(drop=True))
+    if getattr(d.dt, "tz", None) is not None:
+        if check_intraday:
+            _reject_intraday(d)
+        # Keep the wall-clock date exactly as published; do not convert.
+        d = d.dt.tz_localize(None)
+    elif check_intraday:
+        _reject_intraday(d)
+    d = d.dt.normalize()
+
+    sessions = pd.DatetimeIndex(calendar).normalize()
+    if sessions.tz is not None:
+        sessions = sessions.tz_localize(None)
+    sessions = sessions.sort_values()
+
+    # defer  -> first session strictly after d   (searchsorted "right")
+    # else   -> first session at or after d      (searchsorted "left")
+    idx = sessions.searchsorted(d.to_numpy(), side="right" if defer else "left")
+
+    out = pd.Series(pd.NaT, index=d.index, dtype="datetime64[ns]")
+    ok = idx < len(sessions)                                    # upper edge
+
+    # Lower edge. A date needs the previous session only when it falls before
+    # the calendar's first session -- not merely when it maps to it. Under the
+    # secondary rule a date that *is* the first session maps there legitimately
+    # and requires no outside knowledge, so the test is on the date itself
+    # rather than on the resulting index.
+    needs_prior = d.to_numpy() < sessions[0].to_numpy()
+    if prior_session is None:
+        ok &= ~needs_prior
+    else:
+        prev = pd.Timestamp(prior_session).normalize()
+        if prev.tz is not None:
+            prev = prev.tz_localize(None)
+        # Session 0 takes [prev, s0) when deferring, (prev, s0] otherwise.
+        within = (
+            (d.to_numpy() >= prev.to_numpy()) if defer else (d.to_numpy() > prev.to_numpy())
+        )
+        ok &= (~needs_prior) | within
+
+    out.loc[ok] = sessions[idx[ok]]
+    return out
+
+
 def aggregate_daily(
-    scores_df: pd.DataFrame, headlines_df: pd.DataFrame, calendar: pd.DatetimeIndex
+    scores_df: pd.DataFrame,
+    headlines_df: pd.DataFrame,
+    calendar: pd.DatetimeIndex,
+    date_only: bool | None = None,
+    defer: bool = True,
+    prior_session: pd.Timestamp | str | None = None,
 ) -> pd.DataFrame:
-    """D8/D9. Per trading day: n_t, S_t per scorer, and dispersion d_t.
+    """Per trading session: n_t, S_t per scorer, and dispersion d_t.
 
     d_t is the within-day standard deviation of that scorer's headline scores,
     defined only when n_t >= 5 (config.MIN_HEADLINES_FOR_DISPERSION), NaN below.
     Sessions with no headlines appear with n_headlines = 0 so the panel keeps a
-    complete calendar and the zero-news day count can be reported (D9).
+    complete calendar and the zero-news count can be reported.
+
+    `date_only` selects the mapper; None reads `config.DATE_ONLY_FALLBACK`.
+
+    * **date-only** -- `map_date_to_session` on `ts_utc`, the source clock. It
+      must be the source clock: `ts_et` would move a `00:00 UTC` stamp to the
+      previous calendar day and shift every headline back one day.
+    * **intraday** -- `map_to_trading_day` on `ts_et`, where market time is the
+      only clock in which "after the close" means anything.
+
+    Returns a frame whose `date` column is exactly `calendar`, which is what
+    makes a row shift in `build_panel` equal a session shift.
     """
-    df = headlines_df[["headline_id", "ts_et"]].merge(scores_df, on="headline_id", how="inner")
-    df["date"] = map_to_trading_day(df["ts_et"], calendar)
+    if date_only is None:
+        date_only = config.DATE_ONLY_FALLBACK
+
+    ts_col = "ts_utc" if date_only else "ts_et"
+    if ts_col not in headlines_df.columns:
+        raise KeyError(
+            f"headlines are missing {ts_col!r}, required in "
+            f"{'date-only' if date_only else 'intraday'} mode. "
+            + (
+                "The deferred mapper reads the date in the source's own zone; "
+                "passing ts_et would shift a 00:00 UTC stamp back one day."
+                if date_only
+                else "The intraday mapper compares timestamps against the close."
+            )
+        )
+
+    df = headlines_df[["headline_id", ts_col]].merge(scores_df, on="headline_id", how="inner")
+    if date_only:
+        df["date"] = map_date_to_session(
+            df[ts_col], calendar, defer=defer, prior_session=prior_session
+        )
+    else:
+        df["date"] = map_to_trading_day(df[ts_col], calendar, prior_close=prior_session)
     df = df[df["date"].notna()]
 
     score_cols = [f"score_{n}" for n in config.SCORERS]
