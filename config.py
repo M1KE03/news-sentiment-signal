@@ -25,20 +25,42 @@ PANEL_PARQUET = DATA_PROCESSED / "daily_panel.parquet"
 
 LM_DICT_PATH = DATA_RAW / "LoughranMcDonald_MasterDictionary.csv"
 
-# ------------------------------------------------------- D1 news source ----
-# PENDING (Stage 0). One of "fnspid" | "benzinga", chosen by the timestamp
-# audit in notebooks/01_data_audit.ipynb. Criteria, in priority order:
-#   1. usable intraday timestamps with a documented timezone
-#   2. coverage / duplication quality
-#   3. sample length
-# Do not trust any description of these datasets, including the plan's.
-NEWS_SOURCE: str | None = None
-NEWS_RAW_PATH: Path | None = None
+# ------------------------------------------------------- news source ----
+# Resolved at B04. Evidence: docs/data-audit-fnspid.md.
+#
+# FNSPID's All_external.csv is five-plus heterogeneous sub-corpora concatenated
+# (Reuters, Benzinga, SeekingAlpha, Zacks, Bloomberg, lenta.ru, ...) with
+# different languages, schemas and timestamp behaviour. The Benzinga block is
+# selected on relevance and coverage: US-equity, English, 100% ticker-tagged,
+# single editorial source (so the source mix cannot drift under the aggregate).
+NEWS_SOURCE = "fnspid_benzinga"
+NEWS_RAW_FILE = "Stock_news/All_external.csv"
+NEWS_HF_REPO = "Zihan1004/FNSPID"
+NEWS_HF_REVISION = "bf9189c41527198897d1af3e17b1a0095279fc45"
+NEWS_FILE_SHA256 = "dde529189c87048a8be1f73d17ecd5e211fc7809032e60c72cd22645f111c470"
+NEWS_FILE_BYTES = 5_731_397_037
+NEWS_LICENCE = "CC BY-NC 4.0 (non-commercial)"
 
-# D2 fallback: if neither candidate passes the timestamp audit, set this True,
-# map news dated d to trading day d+1, and drop RQ2 (the contemporaneous act)
-# entirely. Decision deadline: end of day 1.
-DATE_ONLY_FALLBACK = False
+# Rows are kept only when their Url host matches. This is mandatory, not
+# hygiene: lenta.ru is a Russian-language general news site present in both
+# FNSPID files, and scoring it with an English financial model yields numbers
+# with no meaning. Taking "all headlines" is not an available option.
+NEWS_SOURCE_DOMAINS = ("benzinga.com",)
+# Candidates for a later pooled sensitivity check, recorded now so the choice
+# cannot be made after seeing a coefficient:
+NEWS_SOURCE_DOMAINS_POOLED = ("benzinga.com", "zacks.com", "seekingalpha.com")
+
+# Date-only fallback: ACTIVE. No FNSPID sub-corpus is both intraday-stamped and
+# relevant to US equities -- the relevant blocks are 96-100% midnight, and the
+# one intraday block (Reuters) is a global general newswire with no ticker tags,
+# weighted to European hours. So RQ2 (same-day association) is dropped and a
+# headline dated d maps to the next trading session at or after d+1.
+#
+# WARNING: this flag is currently INERT. Implementing the mapping and the RQ2
+# suppression is B09. Do not build the panel or run scoring until it is done.
+DATE_ONLY_FALLBACK = True
+DATE_ONLY_FALLBACK_IMPLEMENTED = False
+RQ2_ADMISSIBLE = False
 
 # ------------------------------------------------------ D3 market data ----
 
@@ -46,11 +68,19 @@ MARKET_TICKER = "SPY"
 VIX_TICKER = "^VIX"          # context plots only, never a regressor
 MARKET_CALENDAR = "NYSE"
 
-# ----------------------------------------------------- D4 sample window ----
-# PENDING (Stage 0). Longest span with stable news coverage.
-# Target >= 5 years / >= 1,250 trading days. Locked at Stage 0, then frozen.
-SAMPLE_START: str | None = None
-SAMPLE_END: str | None = None
+# ----------------------------------------------------- sample window ----
+# PROVISIONAL (B04). Ten full years, ~2,500 sessions, against a >=1,250 target.
+# 2009 excluded as a partial ramp-up year; 2020 excluded because its timestamp
+# regime changes (25% intraday), which makes it a different measurement.
+#
+# Provisional because it is bounded from per-source spans in a *cluster* sample:
+# the byte-range slices are ticker-ordered, so market-wide headlines-per-session
+# and coverage stability cannot be estimated from them. Freeze this after the
+# corpus is assembled and before any sentiment-return coefficient is examined,
+# and log the freeze.
+SAMPLE_START = "2010-01-01"
+SAMPLE_END = "2019-12-31"
+SAMPLE_WINDOW_PROVISIONAL = True
 MIN_TRADING_DAYS = 1250
 
 # ------------------------------------------------- D5 unit of analysis ----
@@ -74,13 +104,20 @@ USE_ACTUAL_SESSION_CLOSE = False
 SCORERS = ("lm", "vader", "finbert")
 
 FINBERT_MODEL = "ProsusAI/finbert"
-# Pin the exact model revision once it is downloaded (Stage 1): an unpinned
-# model id is not a reproducible artifact.
-FINBERT_REVISION: str | None = None
+FINBERT_REVISION = "4556d13015211d73dccd3fdd39d39232506f3e43"   # B04, inspected
+# Published label order, verified from the checkpoint's config.json. It is NOT
+# negative/neutral/positive: code that assumes an index order silently inverts
+# every score. src/scoring.py resolves positions from model.config.id2label;
+# B12 must preserve that when it exposes class probabilities.
+FINBERT_ID2LABEL = {0: "positive", 1: "negative", 2: "neutral"}
+# The checkpoint post-dates the whole 2010-2019 window. This is retrospective
+# measurement and is never described as tooling available at the time (P17).
+FINBERT_POSTDATES_SAMPLE = True
 FINBERT_BATCH_SIZE = 32
 FINBERT_MAX_LENGTH = 64      # truncation is safe: these are headlines
 
-# Pin the dictionary release actually downloaded from the SRAF site.
+# UNRESOLVED (B04). SRAF distributes the master dictionary behind a non-stable
+# link, so it must be fetched by hand; record the release here once it is.
 LM_DICT_VERSION: str | None = None
 
 # --------------------------------------------- D8/D9 daily aggregation ----

@@ -40,9 +40,25 @@ def _check_locked_decisions() -> None:
     ]
     if pending:
         raise SystemExit(
-            "config.py still has PENDING Stage 0 decisions: "
+            "config.py still has unresolved decisions: "
             + ", ".join(pending)
-            + "\nLock D1 and D4 in the dataset audit before running the analysis."
+            + "\nResolve the source and window in the dataset audit (B03/B04) first."
+        )
+
+    # B04 selected the date-only fallback: FNSPID's relevant sub-corpora are
+    # 96-100% midnight-stamped (docs/data-audit-fnspid.md). The mapping that
+    # fallback requires is not implemented yet -- that is B09. Running now would
+    # silently apply the intraday 16:00 ET rule to timestamps carrying no time,
+    # putting every headline dated d on session d instead of deferring it, and
+    # inventing an information boundary the data does not support.
+    if config.DATE_ONLY_FALLBACK and not config.DATE_ONLY_FALLBACK_IMPLEMENTED:
+        raise SystemExit(
+            "STOP: config.DATE_ONLY_FALLBACK is active but not implemented (B09).\n"
+            "The selected corpus has date-only timestamps; applying the intraday\n"
+            "close rule to them would assign each headline to the session it was\n"
+            "dated rather than deferring it.\n"
+            "Implement the deferred mapping and the RQ2 suppression, set\n"
+            "DATE_ONLY_FALLBACK_IMPLEMENTED = True, then re-run."
         )
 
 

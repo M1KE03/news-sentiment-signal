@@ -1,5 +1,24 @@
 """Stage 0: the dataset audit that locks D1 and D4.
 
+SUPERSEDED IN PART -- read before reusing (B03; docs/data-audit-fnspid.md).
+
+    `timestamp_profile` and `compare_candidates` apply the intraday gate to a
+    *whole file*. The B03 audit showed that is the wrong unit: FNSPID's
+    All_external.csv concatenates five-plus sub-corpora with different
+    languages, schemas and timestamp behaviour. Judged as one file it looks
+    partly intraday, when in fact one block (Reuters) is intraday and every
+    other block is date-only. The gate must be applied per source.
+
+    `coverage_profile` and `suggest_window` further assume the input sample is
+    representative of the corpus. The bounded audit sample is a *cluster*
+    sample over tickers, so market-wide per-session rates cannot be estimated
+    from it.
+
+    Reworking this module to profile per source is the next increment. Until
+    then these functions are sound only for a single-source input, and the
+    conclusions in docs/data-audit-fnspid.md were produced by the analysis
+    recorded there, not by compare_candidates.
+
 The plan is explicit that no description of either candidate dataset is to be
 trusted -- including its own. So every claim a dataset makes about itself is
 checked here against the data, and each check returns a verdict rather than a
