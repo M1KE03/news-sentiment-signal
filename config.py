@@ -56,10 +56,11 @@ NEWS_SOURCE_DOMAINS_POOLED = ("benzinga.com", "zacks.com", "seekingalpha.com")
 # weighted to European hours. So RQ2 (same-day association) is dropped and a
 # headline dated d maps to the next trading session at or after d+1.
 #
-# WARNING: this flag is currently INERT. Implementing the mapping and the RQ2
-# suppression is B09. Do not build the panel or run scoring until it is done.
+# Implemented at B09: align.map_date_to_session applies the deferred mapping,
+# aggregate_daily dispatches on this flag, inference.contemporaneous refuses to
+# run while RQ2_ADMISSIBLE is False, and run_all.py writes no Table 2.
 DATE_ONLY_FALLBACK = True
-DATE_ONLY_FALLBACK_IMPLEMENTED = False
+DATE_ONLY_FALLBACK_IMPLEMENTED = True
 RQ2_ADMISSIBLE = False
 
 # ------------------------------------------------------ D3 market data ----

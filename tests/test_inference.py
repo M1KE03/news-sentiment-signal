@@ -88,10 +88,12 @@ def test_zero_news_tuesday_still_supplies_wednesdays_control():
 
 
 def test_contemporaneous_refuses_a_panel_without_full_calendar_lags():
+    # allow_inadmissible: RQ2 is suppressed for this corpus (B09b), and the
+    # guard fires first. Here we are testing the lag contract, not that one.
     panel = align.build_panel(_daily([5] * 7), _market())
     stripped = panel.drop(columns=["ret_lag1"])
     with pytest.raises(KeyError, match="full-calendar lag"):
-        inference.contemporaneous(stripped, "finbert")
+        inference.contemporaneous(stripped, "finbert", allow_inadmissible=True)
 
 
 def test_contemporaneous_uses_the_panel_lag_not_a_local_shift():
@@ -109,10 +111,14 @@ def test_contemporaneous_uses_the_panel_lag_not_a_local_shift():
     mkt = _market(long_cal, rng.normal(0, 0.01, len(long_cal)))
     panel = align.build_panel(daily, mkt)
 
-    base = inference.contemporaneous(panel, "finbert").params["ret_lag1"]
+    base = inference.contemporaneous(
+        panel, "finbert", allow_inadmissible=True
+    ).params["ret_lag1"]
     tampered = panel.copy()
     tampered["ret_lag1"] = tampered["ret_lag1"] * -1
-    after = inference.contemporaneous(tampered, "finbert").params["ret_lag1"]
+    after = inference.contemporaneous(
+        tampered, "finbert", allow_inadmissible=True
+    ).params["ret_lag1"]
     assert base != pytest.approx(after)
 
 

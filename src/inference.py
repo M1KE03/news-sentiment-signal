@@ -54,7 +54,12 @@ def _require_lags(panel: pd.DataFrame) -> None:
         )
 
 
-def contemporaneous(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLAGS):
+def contemporaneous(
+    panel: pd.DataFrame,
+    scorer: str,
+    maxlags: int = config.NW_MAXLAGS,
+    allow_inadmissible: bool = False,
+):
     """Section 6.1: ret_t on S_t plus lagged return, range variance and volume.
 
     Reported as association, not causation, in that language. Its absence is
@@ -64,7 +69,23 @@ def contemporaneous(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_M
     pipeline until it appears.
 
     Controls are read from the panel, never shifted here -- see `_require_lags`.
+
+    **Refuses to run when `config.RQ2_ADMISSIBLE` is False.** The B03 audit found
+    no sub-corpus that is both intraday-stamped and relevant, so for this corpus
+    there is no verified within-day information boundary and a same-day
+    coefficient cannot be interpreted. Suppression is structural rather than
+    editorial: a number that is never computed cannot be quoted by accident,
+    whereas one computed "for reference" reliably escapes into a table.
     """
+    if not config.RQ2_ADMISSIBLE and not allow_inadmissible:
+        raise RuntimeError(
+            "the contemporaneous (same-day) specification is inadmissible for "
+            "this corpus: config.RQ2_ADMISSIBLE is False because no selected "
+            "source has usable intraday timestamps (docs/data-audit-fnspid.md). "
+            "Without a within-day information boundary a same-day coefficient "
+            "has no interpretation. Pass allow_inadmissible=True only for a "
+            "deliberate, labelled methodological exhibit."
+        )
     _require_lags(panel)
     X = pd.DataFrame(
         {

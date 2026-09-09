@@ -45,19 +45,19 @@ def _check_locked_decisions() -> None:
             + "\nResolve the source and window in the dataset audit (B03/B04) first."
         )
 
-    # B04 selected the date-only fallback: FNSPID's relevant sub-corpora are
-    # 96-100% midnight-stamped (docs/data-audit-fnspid.md). The mapping that
-    # fallback requires is not implemented yet -- that is B09. Running now would
-    # silently apply the intraday 16:00 ET rule to timestamps carrying no time,
-    # putting every headline dated d on session d instead of deferring it, and
-    # inventing an information boundary the data does not support.
+    # Standing guard. Satisfied since B09, and kept because the failure it
+    # prevents is silent: applying the intraday 16:00 ET rule to timestamps that
+    # carry no time would put every headline on the session it was dated instead
+    # of deferring it, inventing an information boundary the data cannot support.
+    # If the fallback is ever switched on again for a new corpus, this stops the
+    # pipeline until the mapping is actually wired up.
     if config.DATE_ONLY_FALLBACK and not config.DATE_ONLY_FALLBACK_IMPLEMENTED:
         raise SystemExit(
-            "STOP: config.DATE_ONLY_FALLBACK is active but not implemented (B09).\n"
+            "STOP: config.DATE_ONLY_FALLBACK is active but not implemented.\n"
             "The selected corpus has date-only timestamps; applying the intraday\n"
             "close rule to them would assign each headline to the session it was\n"
             "dated rather than deferring it.\n"
-            "Implement the deferred mapping and the RQ2 suppression, set\n"
+            "Wire up align.map_date_to_session and the RQ2 suppression, set\n"
             "DATE_ONLY_FALLBACK_IMPLEMENTED = True, then re-run."
         )
 
@@ -105,18 +105,30 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     )
 
     # --- Table 2: contemporaneous (RQ2) ---------------------------------
-    contemp = {}
-    rows = []
-    for sc in config.SCORERS:
-        res = inference.contemporaneous(sample, sc)
-        key = f"s_{sc}"
-        contemp[sc] = {"coef": float(res.params[key]), "nw_se": float(res.bse[key])}
-        rows.append(
-            {"scorer": sc, "coef": res.params[key], "nw_se": res.bse[key],
-             "t": res.tvalues[key], "p": res.pvalues[key], "nobs": int(res.nobs)}
+    # Structurally suppressed when the corpus cannot support a same-day claim.
+    # No table is written and no t=0 point reaches Figure 2, so the absence is
+    # visible in the outputs rather than resting on someone remembering it.
+    contemp: dict | None = None
+    if config.RQ2_ADMISSIBLE:
+        contemp, rows = {}, []
+        for sc in config.SCORERS:
+            res = inference.contemporaneous(sample, sc)
+            key = f"s_{sc}"
+            contemp[sc] = {"coef": float(res.params[key]), "nw_se": float(res.bse[key])}
+            rows.append(
+                {"scorer": sc, "coef": res.params[key], "nw_se": res.bse[key],
+                 "t": res.tvalues[key], "p": res.pvalues[key], "nobs": int(res.nobs)}
+            )
+        pd.DataFrame(rows).to_csv(TABLES / "table2_contemporaneous.csv", index=False)
+    else:
+        stale = TABLES / "table2_contemporaneous.csv"
+        if stale.exists():
+            stale.unlink()      # never leave a table from an earlier configuration
+        print(
+            "RQ2 suppressed: no selected source has usable intraday timestamps, "
+            "so the same-day specification is not estimated and Table 2 is not "
+            "produced (docs/data-audit-fnspid.md)."
         )
-    table2 = pd.DataFrame(rows)
-    table2.to_csv(TABLES / "table2_contemporaneous.csv", index=False)
 
     # --- Table 3: the lag family, BH-corrected (RQ3) ---------------------
     families = {sc: inference.lag_family(sample, sc) for sc in config.SCORERS}
@@ -174,7 +186,18 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     plots.save(plots.figure_acf(sample), "figure_acf_sentiment")
     plots.save(plots.figure_coverage(panel), "figure_coverage")
 
-    summary = {"coverage": coverage, "placebo": placebo, "corr_finbert_lm": corr}
+    summary = {
+        "coverage": coverage,
+        "placebo": placebo,
+        "corr_finbert_lm": corr,
+        "rq2_admissible": config.RQ2_ADMISSIBLE,
+        "date_only_fallback": config.DATE_ONLY_FALLBACK,
+        "mapping_rule": (
+            "first session strictly after the headline date"
+            if config.DATE_ONLY_FALLBACK
+            else "intraday close rule"
+        ),
+    }
     (TABLES / "run_summary.json").write_text(json.dumps(summary, indent=2))
     return summary
 

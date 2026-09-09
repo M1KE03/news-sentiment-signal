@@ -19,13 +19,29 @@ import config
 _WS = re.compile(r"\s+")
 _PUNCT = re.compile(r"[^\w\s]")
 
-HEADLINE_COLUMNS = ["headline_id", "text", "text_norm", "ts_utc", "ts_et", "tickers"]
+HEADLINE_COLUMNS = ["headline_id", "text", "text_norm", "ts_utc", "ts_et", "tickers", "source"]
 
-# Column name and source timezone per candidate dataset. Both are asserted in
-# the Stage 0 audit rather than trusted -- see notebooks/01_data_audit.ipynb.
+# Column names, source timezone and timestamp format per dataset. Verified by
+# reading the file's bytes in the B03 audit, not taken from documentation --
+# FNSPID's dataset card documents no column semantics at all.
+#
+# The standalone "benzinga" spec is gone: there is no separate Benzinga dataset
+# in this study. Benzinga is a *sub-corpus* of FNSPID's All_external.csv,
+# selected by URL host, and the file also carries Reuters, Bloomberg, Zacks,
+# SeekingAlpha and the Russian-language lenta.ru. See docs/data-audit-fnspid.md.
 _SOURCE_SPEC = {
-    "fnspid": {"text": "Article_title", "ts": "Date", "tickers": "Stock_symbol", "tz": "UTC"},
-    "benzinga": {"text": "title", "ts": "date", "tickers": "stock", "tz": "America/New_York"},
+    "fnspid": {
+        "text": "Article_title",
+        "ts": "Date",
+        "tickers": "Stock_symbol",
+        "url": "Url",
+        "tz": "UTC",
+        # Every conforming value is "YYYY-MM-DD HH:MM:SS UTC". The ~0.05% that
+        # do not are fragments of article body text, which is how the embedded
+        # newlines in the Article field announce themselves.
+        "ts_pattern": r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$",
+        "ts_suffix": " UTC",
+    },
 }
 
 
@@ -41,31 +57,45 @@ def _headline_id(text_norm: str, ts_utc: pd.Timestamp) -> str:
     return hashlib.sha1(key.encode("utf-8")).hexdigest()
 
 
-def load_news(path: str | Path, source: Literal["fnspid", "benzinga"]) -> pd.DataFrame:
-    """Read a raw news dump into the §4 `headlines` schema.
+_SENTINEL: tuple[str, ...] = ("__use_config__",)
 
-    The source timezone is applied explicitly from `_SOURCE_SPEC`, never
-    inferred from the data. Timezone-naive source stamps are localized; aware
-    ones are converted.
-    """
-    if source not in _SOURCE_SPEC:
-        raise ValueError(f"unknown source {source!r}; expected one of {list(_SOURCE_SPEC)}")
-    spec = _SOURCE_SPEC[source]
 
-    path = Path(path)
-    if path.suffix in {".parquet", ".pq"}:
-        raw = pd.read_parquet(path)
-    else:
-        raw = pd.read_csv(path)
+def _parse_chunk(raw: pd.DataFrame, spec: dict, domains: tuple[str, ...],
+                 start, end, stats: dict) -> pd.DataFrame:
+    """One chunk: validate stamps, filter by source, build the schema."""
+    stats["n_read"] += len(raw)
 
-    missing = [spec[k] for k in ("text", "ts") if spec[k] not in raw.columns]
-    if missing:
-        raise KeyError(f"{path.name} is missing expected column(s) {missing}")
+    text_raw = raw[spec["text"]].astype("string").str.strip()
+    ts_raw = raw[spec["ts"]].astype("string")
 
-    ts = pd.to_datetime(raw[spec["ts"]], errors="coerce", utc=False)
-    if ts.dt.tz is None:
-        ts = ts.dt.tz_localize(spec["tz"], ambiguous="NaT", nonexistent="NaT")
-    ts_utc = ts.dt.tz_convert("UTC")
+    # Reject malformed stamps explicitly rather than letting `errors="coerce"`
+    # turn them into NaT alongside genuinely missing values -- these are body
+    # text bleeding through a record boundary, and their count is evidence.
+    conforms = ts_raw.str.match(spec["ts_pattern"]).fillna(False)
+    stats["n_bad_timestamp"] += int((~conforms).sum())
+    if stats["n_bad_timestamp"] and len(stats["bad_timestamp_examples"]) < 3:
+        stats["bad_timestamp_examples"].extend(
+            ts_raw[~conforms].dropna().astype(str).head(3).tolist()
+        )
+    raw, text_raw = raw[conforms], text_raw[conforms]
+
+    ts_utc = pd.to_datetime(
+        ts_raw[conforms].str.removesuffix(spec["ts_suffix"]), errors="coerce"
+    ).dt.tz_localize(spec["tz"]).dt.tz_convert("UTC")
+
+    url_col = spec.get("url")
+    host = (
+        raw[url_col].astype("string").str.extract(r"https?://(?:www\.)?([^/]+)")[0]
+        if url_col and url_col in raw.columns
+        else pd.Series(pd.NA, index=raw.index, dtype="string")
+    )
+
+    if domains:
+        keep = host.fillna("").apply(lambda h: any(d in h for d in domains))
+        stats["n_wrong_source"] += int((~keep).sum())
+        for h in host[~keep].fillna("(no url)").value_counts().head(20).items():
+            stats["rejected_hosts"][h[0]] = stats["rejected_hosts"].get(h[0], 0) + int(h[1])
+        raw, text_raw, ts_utc, host = raw[keep], text_raw[keep], ts_utc[keep], host[keep]
 
     tick_col = spec.get("tickers")
     if tick_col and tick_col in raw.columns:
@@ -76,22 +106,106 @@ def load_news(path: str | Path, source: Literal["fnspid", "benzinga"]) -> pd.Dat
         tickers = pd.Series([[] for _ in range(len(raw))], index=raw.index)
 
     df = pd.DataFrame(
-        {
-            "text": raw[spec["text"]].astype("string").str.strip(),
-            "ts_utc": ts_utc,
-            "tickers": tickers,
-        }
+        {"text": text_raw, "ts_utc": ts_utc, "tickers": tickers, "source": host}
     )
     df = df[df["text"].notna() & (df["text"].str.len() > 0) & df["ts_utc"].notna()]
+
+    if start is not None:
+        df = df[df["ts_utc"] >= pd.Timestamp(start, tz="UTC")]
+    if end is not None:
+        df = df[df["ts_utc"] <= pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)]
+
     df["text_norm"] = normalize_text(df["text"])
     df = df[df["text_norm"].str.len() > 0]
     df["ts_et"] = df["ts_utc"].dt.tz_convert(config.TZ_MARKET)
     df["headline_id"] = [
-        _headline_id(tn, ts) for tn, ts in zip(df["text_norm"], df["ts_utc"])
+        _headline_id(tn, t) for tn, t in zip(df["text_norm"], df["ts_utc"])
     ]
     df["text"] = df["text"].astype(str)
+    df["source"] = df["source"].astype(str)
+    return df.loc[:, HEADLINE_COLUMNS]
 
-    return df.loc[:, HEADLINE_COLUMNS].sort_values("ts_utc").reset_index(drop=True)
+
+def load_news(
+    path: str | Path,
+    source: Literal["fnspid"] = "fnspid",
+    domains: tuple[str, ...] | None = _SENTINEL,
+    start: str | None = None,
+    end: str | None = None,
+    chunksize: int | None = 500_000,
+) -> pd.DataFrame:
+    """Read a raw news dump into the `headlines` schema, filtered to its universe.
+
+    **Source filtering is mandatory, not hygiene.** FNSPID's `All_external.csv`
+    concatenates five-plus sub-corpora, one of which (`lenta.ru`) is a
+    Russian-language general news site. Scoring that text with an English
+    financial model returns numbers that look fine and mean nothing. `domains`
+    therefore defaults to `config.NEWS_SOURCE_DOMAINS`; pass an empty tuple to
+    disable filtering, which is a deliberate act rather than an oversight.
+
+    The source timezone comes from `_SOURCE_SPEC`, applied explicitly, never
+    inferred from the data.
+
+    Records whose timestamp does not match the documented pattern are dropped
+    and counted separately from missing values: in FNSPID they are article body
+    text bleeding across a record boundary, and the count is evidence about
+    parsing rather than noise.
+
+    `chunksize` streams the CSV, since the real file is 5.7 GB. Set it to None
+    to read at once. Chunking changes nothing about the result.
+
+    Counts are attached to `.attrs["load_stats"]` -- what was read, what was
+    rejected for a bad timestamp, and what was rejected as the wrong source,
+    with the rejected hosts named.
+    """
+    if source not in _SOURCE_SPEC:
+        raise ValueError(
+            f"unknown source {source!r}; expected one of {list(_SOURCE_SPEC)}. "
+            "Note that 'benzinga' is no longer a source: it is a sub-corpus of "
+            "FNSPID selected via `domains`."
+        )
+    spec = _SOURCE_SPEC[source]
+    if domains is _SENTINEL:
+        domains = tuple(config.NEWS_SOURCE_DOMAINS)
+
+    path = Path(path)
+    stats = {
+        "n_read": 0, "n_bad_timestamp": 0, "n_wrong_source": 0,
+        "bad_timestamp_examples": [], "rejected_hosts": {},
+        "domains": tuple(domains), "path": str(path),
+    }
+
+    if path.suffix in {".parquet", ".pq"}:
+        chunks = [pd.read_parquet(path)]
+    elif chunksize:
+        chunks = pd.read_csv(path, dtype=str, chunksize=chunksize)
+    else:
+        chunks = [pd.read_csv(path, dtype=str)]
+
+    frames, checked = [], False
+    for raw in chunks:
+        if not checked:
+            missing = [spec[k] for k in ("text", "ts") if spec[k] not in raw.columns]
+            if missing:
+                raise KeyError(f"{path.name} is missing expected column(s) {missing}")
+            checked = True
+        frames.append(_parse_chunk(raw, spec, domains, start, end, stats))
+
+    out = (
+        pd.concat(frames, ignore_index=True) if frames
+        else pd.DataFrame(columns=HEADLINE_COLUMNS)
+    )
+    # Pin the string dtypes after concatenation. Without this the result depends
+    # on how many chunks were read -- a single frame keeps pandas' inferred
+    # dtype while a concat of several falls back to object -- so the schema
+    # would vary with a performance knob, and a later merge on headline_id
+    # could mismatch. Chunking must change nothing observable.
+    for col in ("headline_id", "text", "text_norm", "source"):
+        out[col] = out[col].astype("string")
+    out = out.sort_values("ts_utc").reset_index(drop=True)
+    stats["n_kept"] = len(out)
+    out.attrs["load_stats"] = stats
+    return out
 
 
 def _token_set_overlap(a: str, b: str) -> float:
