@@ -10,11 +10,24 @@ Related: [implementation plan](implementation-plan.md) (B01–B28) · [decision 
 
 ## 1. Where the project stands, in one paragraph
 
-The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: **869,183** deduplicated Benzinga headlines over 2,516 trading sessions, with D4 frozen on coverage evidence. A full project audit on 2026-09-09 found fifteen issues (A01–A15); **eleven of the thirty repair increments are complete**, covering scoring-cache identity and durable checkpoints, verified acquisition, the census mapping, the market-return calendar, the score-to-panel gate, the protocol amendments and the deduplication lineage. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
+The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: **869,183** deduplicated Benzinga headlines over 2,516 trading sessions, with D4 frozen on coverage evidence. A full project audit on 2026-09-09 found fifteen issues (A01–A15); **thirteen of the thirty repair increments are complete**, covering scoring-cache identity and durable checkpoints, verified acquisition, the census mapping, the market-return calendar, the score-to-panel gate, the protocol amendments, the deduplication lineage and its verified rebuild, and Act 1's blind sample. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
 
-**216 tests pass, 0 skip.** The seven long-standing skips were FinBERT and VADER; Smart App Control has since been disabled, so `torch` loads and every test executes.
+**246 tests pass, 0 skip.** The seven long-standing skips were FinBERT and VADER; Smart App Control has since been disabled, so `torch` loads and every test executes.
 
-The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-09.md), which sits inside the B01–B28 roadmap below and is the authoritative execution order.
+The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-09.md) — **13 of 30 increments complete** — which sits inside the B01–B28 roadmap below and is the authoritative execution order.
+
+### Start here
+
+1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
+2. **§5a** names the next increment and why it is next.
+3. **§6** is what you cannot do without a human.
+4. Run `pytest` before touching anything: 246 passing, 0 skipped, is the baseline.
+
+Three facts that will save you an hour:
+
+- **The corpus is final.** It was rebuilt through the verified acquisition path at R03d; `interim/headlines.parquet` is 869,183 rows and its manifest records `verified_against_pin: true`. Do not redraw or rebuild it without a dated decision-log entry.
+- **Act 1's sample is drawn and waiting on a person.** `data/annotation/` holds 800 blind items. The draw is made **once** (P25).
+- **`src/inference.py` still implements the original plan's methods**, not the accepted protocols. R07 and R08 replace them. Do not read anything it produces as a result.
 
 ## 2. What the study is
 
@@ -113,6 +126,84 @@ It reads the wall-clock date **in the source's own zone and never converts** —
 `load_news` rewritten: source filtering is **mandatory** and defaults to `config.NEWS_SOURCE_DOMAINS`; disabling it requires an explicit empty tuple. Malformed stamps are rejected against the documented pattern and counted separately from missing values. CSV reading is chunked for the 5.7 GB file. RQ2 suppression is **structural** — `contemporaneous` raises, `run_all.py` writes no Table 2 and deletes any stale one. `DATE_ONLY_FALLBACK_IMPLEMENTED` set True.
 
 A defect the tests caught: the headline schema's string dtypes depended on `chunksize`, so the schema varied with a performance knob and a later merge on `headline_id` could mismatch.
+
+## 3a. The 2026-09-09 audit repair session
+
+A full [project audit](project-audit-2026-09-09.md) found fifteen issues (A01–A15). The [repair sequence](audit-implementation-plan-2026-09-09.md) addresses them in thirty increments. Thirteen are done. What follows is what changed and what it cost, because several of these were found by measurement rather than by reading code.
+
+### R01a–R01d — scoring cache and checkpoints (A01, A02)
+
+Fingerprints compare by JSON representation so identity survives save/load; FinBERT records the revision actually passed to its constructor; `text_sha256` detects changed headlines; a changed scorer fingerprint invalidates that entire cached column. Scores and provenance now live in **one** Parquet file with a single replacement commit point, a process-held writer lock and explicit legacy refusal — the [checkpoint contract](scoring-checkpoint-contract.md), 30 tests.
+
+### R02 — verified acquisition (A05)
+
+`assemble_corpus` writes the **raw** destination only and refuses to be pointed at the clean one, so a documented command can no longer replace the deduplicated corpus with the undeduplicated one under the same name. The URL is built from the pinned revision; the stream is hashed as consumed and checked **before** anything is published; publication is atomic with the manifest written after the data.
+
+### R05 — protocol amendments (A10, A09)
+
+Six amendments to the two frozen protocols, made while no result of any kind existed — which is what makes them corrections rather than post hoc adjustment. Each protocol carries its own amendment record.
+
+| | Change |
+|---|---|
+| M1 | The advance precision check is two **planning** half-widths, not a bound. The old claim that a wide `1.96·sd(r)/√n` means the study "cannot" deliver the smallness conclusion "no matter what is estimated" was false in both directions and is withdrawn |
+| M2 | Three overlapping conclusion categories (a `[1,3]` bps interval satisfied two of them) replaced by two always-reported dimensions, a 2×2 naming rule and a non-strict 0.1 bps boundary rule |
+| M3 | The 14-test secondary family is closed and contains **return tests only**; Act 1's contrasts are specified in the validation protocol and cannot join it |
+| M4 | The primary accuracy comparison is the paired **group** bootstrap; exact McNemar is supplementary, printed with its validity condition, because §4's own grouping rule contradicts its independence assumption |
+| M5 | Independence narrowed to **label** independence; text exposure recorded as unknown for all three scorers; PhraseBank's number is "optimistically biased", not an upper bound |
+| M6 | The circular shift's domain is the retained analysis rows in session order, with midrank ties and a reported tie count |
+
+**M7 (HAC lag spacing, A09) is deliberately open.** The recommendation was to prespecify session-indexed HAC now; the user deferred it to **R07c**, which will measure the difference first. §4 of the inference protocol states the exposure this carries and the two constraints that bound it: R07c completes before any tone coefficient is estimated, and whichever convention becomes primary, the other is reported alongside.
+
+### R03a/R03b — deduplication lineage (A12, A11)
+
+Five defects, each reproduced against the running code and then quantified on the real 1.4M-row corpus. The [dedup lineage contract](dedup-lineage-contract.md) has the full evidence.
+
+- **The output was not order-invariant.** `dedup` sorted on `ts_utc` with an unstable quicksort, and in a date-only corpus *every* same-day duplicate group ties on that key. Permuting the corpus changed 2,363 surviving ids and the retained ticker tags of **93,552 survivors (10.78%)**. The representative is now the total order `(ts_utc, source_row_id)`, and permuting changes **nothing**.
+- **Ticker tags were being destroyed** — 501,957 of 663,074 distinct (cluster, ticker) pairs, **75.7%** — because a story filed under three tickers kept one. Tags are now unioned across the cluster. Concentration measured on unioned tags is marginally *lower*, so the D4 universe decision is unaffected.
+- **The exact/near split was badly wrong.** The exact window anchored on a text's first-ever occurrence rather than its last kept one, so later clusters of exact repeats were charged to the near count: **96.2% of the reported near-duplicate count was actually exact duplication**. Corrected from 431,602 / 111,717 to **539,087 / 4,254**.
+- **The blocking-exposure boundary was off by one.** `ceil(2/(1-0.90))` returns 21 in binary floating point; the documented boundary is 20, and a 20-token pair differing by two tokens clears the threshold exactly. Now computed in exact rational arithmetic.
+- **Lineage is recorded.** `interim/dedup_lineage.parquet` holds one row per raw row, so the dedup rate is recomputable from the artifacts rather than only reproducible by re-running the pass.
+
+`headline_id` is `sha1(text_norm | ts_utc)`, so it identifies a *group*, not a row — 518,332 raw rows share an id with another. Lineage therefore needed the new `source_row_id`.
+
+**A design decision came out of implementation, not specification.** The first version asserted that every eliminated row points at a survivor. That assertion **failed on the real corpus**: an exact repeat's anchor can itself be removed later as a near-duplicate, so elimination forms chains — 12,074 rows, 2.2%. Lineage records the immediate eliminator; `cluster_id` resolves to the root.
+
+### R03d — verified rebuild, and a pin that was wrong
+
+**The pinned digest did not match, and R02's guard caught it.** The first assembly refused to publish and wrote nothing: the streamed file hashed to `5d4c0180…`, not the pinned `dde52918…`.
+
+HuggingFace's `paths-info` API for the pinned revision settles what happened. It reports `lfs.oid` = `5d4c0180…` — Git LFS OIDs are sha256-of-content, matching the independent computation — and `xetHash` = `dde52918…`. **B04 recorded the value from the HTTP ETag**, which HF serves as the Xet hash for Xet-backed files; the data audit even labelled the row "File sha256 (etag)". The file never changed: same revision, same 5,731,397,037 bytes, same content. Only the pin named the wrong hash function. `config.NEWS_FILE_SHA256` is corrected and `NEWS_FILE_XET_HASH` keeps the original for traceability.
+
+This also means **the pre-R02 corpus had never had its digest checked at all**, which is why its manifest recorded `verified_against_pin: false`.
+
+The rebuild produced **the same data**: 1,412,524 raw rows, identical `headline_id` set and identical `text_norm` multiset. Clean corpus 869,205 → **869,183** (symmetric difference 2,314 ids, 0.27%). Census reconciles at **869,092 + 91 = 869,183** and **D4 holds** — no year below tolerance, one structural zero-news session.
+
+### R06a — the blind annotation sample
+
+`src/annotate.py` and 30 tests. `data/annotation/` holds **800 headlines, 200 calibration / 600 evaluation**, drawn proportionally across 10 strata with seed `20260830`, **once**.
+
+Article groups are computed within the sample by exact all-pairs comparison and are **unwindowed** — the relation the dedup contract separated from the windowed cluster, because a story republished ten days later survives dedup twice but is still one article for leakage purposes. A whole group goes to one part, and `load_split` re-checks that invariant on read.
+
+The blind export carries `headline_id` and `text` only, guarded against a forbidden-column list, shuffled under a **separate** order seed so reshuffling the running order cannot disturb which rows were drawn. `provenance.md` leaves annotator, dates, blindness confirmation and deviations as explicit `TO BE COMPLETED` blanks, and a test asserts they stay blank.
+
+### The FinBERT spot-check, which is not a code defect
+
+With `torch` finally loading, six scorer tests executed for the first time and one failed. It asserted that FinBERT would *not* call "Costs fell sharply in the third quarter" negative — Exhibit A's premise that a context model sees what a word counter cannot.
+
+| Headline | FinBERT | P(neg) |
+|---|---|---|
+| Costs fell sharply in the third quarter | **negative** | 0.932 |
+| Profit warning smaller than feared | **negative** | 0.924 |
+| Quarterly profit beats expectations | positive | — |
+| Shares plunge after weak guidance | negative | 0.933 |
+
+Both headlines built to demonstrate the premise are ones FinBERT gets wrong, agreeing with the word counter it was supposed to beat. **The B12 label-order pin is confirmed correct** against the real checkpoint, so the code is fine; what failed was a test asserting a research expectation on six invented sentences before Act 1 has run. The assertion was **removed rather than inverted** and replaced with a characterization record pinned to the revision.
+
+Six invented sentences establish nothing in either direction — that is what Act 1's independently annotated evaluation is for — but the premise is no longer free, and it still stands in `README.md` and `report/report.md` (R09/B27).
+
+### The documentation pass (A14)
+
+`README.md`, `report/report.md`, `src/plots.py`, notebooks 01–03, `implementation-plan.md` and the decision log were brought to what the code actually does. Removed: the "domain transformer reads financial sentences far better" premise; the Findings section's placeholder bullets that pre-wrote the expected answer's shape; a block literally headed **"Expected outcomes, declared before any result was seen"**; the "no same-day association means something upstream is broken" sanity check (P23); six figure titles that asserted conclusions; the `--all` flag that does not exist; and the D6 intraday rule that is descoped.
 
 ## 4. Checklist against the implementation plan
 
@@ -267,20 +358,37 @@ Two corrections came out of it, both recorded: the earlier "0.05% malformed time
 
 ## 5a. The next increment
 
-**R03d — the corpus verification checkpoint**, then **R06a**. R03d rebuilds raw → clean through R02's verified acquisition path with R03b's rules, diffs membership against the previous artifact, recomputes the census and concentration, and replaces the frozen corpus. It must complete **before any annotation sample is drawn and before any scoring**, because a sample drawn from a corpus that later changes is a sample thrown away.
+**R07a**, then R07b → R07c → R07d → R08a–c.
 
-R06a then draws the blind annotation sample and hands it to an annotator. That ordering is deliberate: annotation is the only dependency with human latency, so it starts as early as possible and the inference track (R07a–R08c, seven fixture-based increments needing nothing external) fills the wait.
+The corpus track is closed and Act 1's sample is drawn, so what remains on the critical path with **no external dependency** is the inference track: seven fixture-based increments that gate every Act 2 result.
 
-**B22, the scoring pilot, is now unblocked** — `torch` loads. `rescore.py --time-only` times FinBERT on 1,000 headlines and extrapolates before a full pass is launched. If the projected time is unacceptable, the plan's rule is to shorten the *window* and record it — **never** to subsample headlines within days, which would bias both `S_t` and `d_t`. Shortening the window means unfreezing D4, which requires a dated log entry.
+| Increment | What it does | Why it is not optional |
+|---|---|---|
+| **R07a** | Rename `log_turnover` → `log_volume`, `parkinson` → `rv_parkinson`, and fix consumers | Names must match formulas (P22); obsolete consumers should fail tests |
+| **R07b** | Build the primary regression to the frozen specification | `inference.predictive` uses **raw** `log_turnover`; the protocol specifies trailing-63-session-**detrended** log volume. That is a different model, not a renamed column (A07). Tone is also not standardized at fit time, and the bps conversion uses the wrong sample's SD |
+| **R07c** | Session-indexed vs retained-position HAC | Owns the **deferred M7 decision**. Measure both on synthetic gapped data and the real sample, then choose — before any tone coefficient is estimated |
+| **R07d** | Precision and the conclusion rule | Implements M1's two advance half-widths and M2's 2×2 rule |
+| **R08a–c** | Return families, paired scorer contrast, timing diagnostic | Replaces per-scorer BH with one primary + 14 secondary; replaces block resampling with the circular shift (A08) |
 
-Still needed from outside the code: the Loughran–McDonald dictionary and a named annotator.
+**Do this before scoring, not after.** R11's bounded scoring pass is the expensive step; discovering afterwards that the panel contract was wrong means re-deriving everything downstream of it.
+
+**B22, the scoring pilot, is unblocked** — `torch` loads. `rescore.py --time-only` times FinBERT on 1,000 headlines and extrapolates before a full pass is launched. If the projected time is unacceptable, the plan's rule is to shorten the *window* and record it — **never** to subsample headlines within days, which would bias both `S_t` and `d_t`. Shortening the window means unfreezing D4, which requires a dated log entry.
+
+### What is waiting on a human, and what it unblocks
+
+| Hand this over | Unblocks |
+|---|---|
+| The 800 items in `data/annotation/to_label_primary.csv`, starting with the 60 in `pilot_items.csv` | R06b, R13a, all of Act 1 |
+| `LoughranMcDonald_MasterDictionary.csv` in `data/raw/` | LM scoring, the calibration thresholds, R11 |
+
+Neither blocks R07 or R08.
 
 ## 6. Blockers and external dependencies
 
 | Blocker | Blocks | Action |
 |---|---|---|
 | **Loughran–McDonald dictionary** not obtained | Any LM scoring; Act 1 | Download by hand from the Notre Dame SRAF site (no stable link) into `data/raw/LoughranMcDonald_MasterDictionary.csv`, then record the release in `config.LM_DICT_VERSION` |
-| **Human annotation** not started | B11, B15, B24, all of Act 1 | Needs a named annotator; ideally a second on a 20% subset for kappa. Protocol is written and executable |
+| **Human annotation** not started | R06b, B15, B24, all of Act 1 | **The sample is drawn and waiting.** `data/annotation/to_label_primary.csv` holds 800 blind items; start with the 60 in `pilot_items.csv`, then check rubric adequacy, class balance and throughput before committing to the rest (protocol §8). A second annotator on `to_label_second.csv` (160 items) gives kappa; if none is available, say so plainly in the report rather than leaving it unmentioned |
 | ~~Window not frozen~~ | — | **Resolved**: frozen 2026-09-09 on the census |
 | ~~Smart App Control blocks `torch`~~ | — | **Resolved 2026-09-09**: the user disabled Smart App Control. `torch 2.14.0+cpu` and `transformers 5.16.1` load, FinBERT runs, and the seven long-standing skips now execute |
 | `datasets==4.0.0` loader | B10, PhraseBank fallback only | Not on the critical path unless annotation fails |
@@ -296,7 +404,21 @@ Still needed from outside the code: the Loughran–McDonald dictionary and a nam
 
 ## 8. Repository state
 
-The repair increments R01–R05, R03a and R03b are committed. The working tree at the time of writing carries the R03b/R03d work and this documentation pass; the standing rule is that **the assistant does not perform Git writes**, so staging and commits are the human's.
+The repair increments R01–R05, R03a, R03b and the documentation pass are committed. The working tree at the time of writing carries R03d's config change and R06a (`src/annotate.py`, `tests/test_validation.py`, `data/annotation/`). The standing rule is that **the assistant does not perform Git writes**, so staging and commits are the human's.
+
+### Data artifacts and their status
+
+| Artifact | Rows | Status |
+|---|---:|---|
+| `interim/headlines_raw.parquet` | 1,412,524 | Rebuilt R03d; manifest `verified_against_pin: true` |
+| `interim/headlines.parquet` | 869,183 | The analysis input. **Frozen** — do not rebuild without a dated log entry |
+| `interim/dedup_lineage.parquet` | 1,412,524 | One row per raw row; makes the dedup rate recomputable |
+| `data/annotation/` | 800 | **Tracked in Git**, unlike everything under `raw|interim|processed` |
+| `interim/scores.parquet` | — | Does not exist. No text has been scored |
+| `interim/market.parquet` | — | Does not exist. Needs `yfinance` |
+| `processed/daily_panel.parquet` | — | Does not exist |
+
+`data/annotation/` is deliberately excluded from the gitignore rules: the labels will be the study's own experimental data and the most expensive artifact in the project to reproduce.
 
 ```
 docs/
@@ -309,20 +431,21 @@ docs/
   data-audit-fnspid.md              B03 findings + B04 decisions
   timing-contract.md                B05
   scoring-checkpoint-contract.md    R01c, implemented R01d
-  dedup-lineage-contract.md         R03a, implemented R03b
+  dedup-lineage-contract.md         R03a, implemented R03b, executed R03d
   project-audit-2026-09-09.md       the audit, findings A01-A15
   audit-implementation-plan-2026-09-09.md   the live repair sequence R01-R15
   handover.md                       this file
 config.py                           every locked decision and pinned artifact
 src/data.py       loading, mandatory source filter, dedup + lineage, market, calendar
+src/annotate.py   the blind Act 1 sample: strata, article groups, split, exports
 src/audit.py      per-source profiling; withholds rates a cluster sample cannot support
 src/align.py      both mappers, daily aggregation, panel, all lags and leads
 src/scoring.py    three scorers behind one protocol, hash-keyed cache
 src/validate.py   Act 1 metrics (not yet reworked to the B01 protocol)
 src/inference.py  HAC regressions, BH, placebo, effect sizes
 src/plots.py      one function per figure (titles still assert conclusions — B27)
-tests/            216 passing, 0 skipped: alignment · audit · data · inference ·
-                  scoring · checkpoints · acquisition · market
+tests/            246 passing, 0 skipped: alignment · audit · data · inference ·
+                  scoring · checkpoints · acquisition · market · validation
 run_all.py        panel -> tables and figures, with the standing fallback guard
 rescore.py        the one-off scoring pass (--time-only times it first)
 ```
