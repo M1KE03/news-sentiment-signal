@@ -170,3 +170,114 @@ def test_leads_are_pure_shifts_and_never_leak():
         assert lead.tail(h).isna().all()
 
     assert list(panel.columns) == align.PANEL_COLUMNS
+
+
+# --------------------------------------------------------------------------
+# B07/B08: calendar edges and the wrong-mapper guard.
+# --------------------------------------------------------------------------
+
+
+def test_pre_window_headlines_are_dropped_not_piled_on_the_first_session():
+    """B05 defect D-1, as a regression test.
+
+    The first session's window opens at the *previous* session's close, which
+    lies outside the calendar. Without that bound every earlier headline
+    searchsorted to index 0 and landed on the first session -- five years of
+    pre-window news on one day.
+    """
+    stamps = pd.Series(
+        [
+            et("2019-03-01 10:00"),   # years before the calendar
+            et("2024-06-14 10:00"),   # weeks before
+            et("2024-06-28 15:00"),   # the session before the calendar starts
+            et("2024-07-01 15:00"),   # inside the first session's day
+            et("2024-07-02 15:00"),   # comfortably inside the calendar
+        ]
+    )
+    got = align.map_to_trading_day(stamps, CALENDAR)
+    assert got.iloc[:4].isna().all(), "everything at or before session 0 must be NaT"
+    assert got.iloc[4] == pd.Timestamp("2024-07-02")
+
+
+def test_prior_close_populates_the_first_session():
+    """Supplying the previous session's close makes session 0 usable again."""
+    prior = pd.Timestamp("2024-06-28 16:00", tz=config.TZ_MARKET)
+    stamps = pd.Series(
+        [
+            et("2019-03-01 10:00"),   # still out of window
+            et("2024-06-28 15:59"),   # before the prior close -> still out
+            et("2024-06-28 16:30"),   # after the prior close -> session 0
+            et("2024-07-01 09:00"),   # session 0
+        ]
+    )
+    got = align.map_to_trading_day(stamps, CALENDAR, prior_close=prior)
+    assert got.iloc[0] is pd.NaT or pd.isna(got.iloc[0])
+    assert pd.isna(got.iloc[1])
+    assert got.iloc[2] == pd.Timestamp("2024-07-01")
+    assert got.iloc[3] == pd.Timestamp("2024-07-01")
+
+
+def test_prior_close_must_be_timezone_aware():
+    with pytest.raises(ValueError, match="prior_close must be timezone-aware"):
+        align.map_to_trading_day(
+            pd.Series([et("2024-07-02 10:00")]),
+            CALENDAR,
+            prior_close=pd.Timestamp("2024-06-28 16:00"),
+        )
+
+
+def test_intraday_mapper_refuses_date_only_input():
+    """B07 descope guard: the two mappers must refuse each other's data."""
+    days = pd.date_range("2015-01-01", periods=400, freq="D", tz="UTC")
+    date_only = pd.Series(days).dt.tz_convert(config.TZ_MARKET)
+    cal = pd.DatetimeIndex(pd.bdate_range("2015-01-01", "2016-12-31"))
+    with pytest.raises(ValueError, match="date-only timestamps"):
+        align.map_to_trading_day(date_only, cal)
+
+
+def test_date_only_guard_is_skipped_on_small_samples():
+    """Concentration is not evidence when there are only a few timestamps."""
+    small = pd.Series([et("2024-07-02 10:00"), et("2024-07-03 10:00")])
+    got = align.map_to_trading_day(small, CALENDAR)
+    assert got.notna().all()
+
+
+def test_date_only_guard_passes_genuine_intraday_data():
+    rng = np.random.default_rng(config.SEED)
+    cal = pd.DatetimeIndex(pd.bdate_range("2015-01-01", "2016-12-31"))
+    stamps = pd.Series(
+        [
+            pd.Timestamp(d, tz=config.TZ_MARKET) + pd.Timedelta(minutes=int(rng.integers(0, 1440)))
+            for d in cal[:300]
+        ]
+    )
+    assert align.map_to_trading_day(stamps, cal).notna().any()
+
+
+def test_trading_calendar_raises_without_the_calendar_package(monkeypatch):
+    """B08: no silent degradation to business days."""
+    import builtins
+
+    from src import data as sdata
+
+    real_import = builtins.__import__
+
+    def blocked(name, *a, **k):
+        if name == "pandas_market_calendars":
+            raise ImportError("blocked for test")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", blocked)
+    with pytest.raises(ImportError, match="pandas_market_calendars is required"):
+        sdata.trading_calendar("2015-01-01", "2015-12-31")
+
+
+def test_trading_calendar_excludes_market_holidays():
+    from src import data as sdata
+
+    cal = sdata.trading_calendar("2015-01-01", "2015-12-31")
+    assert pd.Timestamp("2015-07-03") not in cal      # Independence Day observed
+    assert pd.Timestamp("2015-12-25") not in cal      # Christmas
+    assert pd.Timestamp("2015-11-26") not in cal      # Thanksgiving
+    assert pd.Timestamp("2015-11-27") in cal          # half-day, still a session
+    assert len(cal) == 252

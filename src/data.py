@@ -155,22 +155,23 @@ def dedup(
 def trading_calendar(start: str, end: str) -> pd.DatetimeIndex:
     """NYSE session dates in [start, end], tz-naive dates.
 
-    Uses `pandas_market_calendars` when installed; otherwise falls back to
-    business days, which is wrong on holidays and says so loudly.
+    Raises if `pandas_market_calendars` is unavailable. It previously fell back
+    to `pd.bdate_range` with a warning, which treats every market holiday as a
+    session -- roughly nine phantom sessions a year, silently shifting what
+    "the next trading day" means, behind a warning that scrolls past (B05
+    defect D-3). A wrong calendar is not a degraded mode of this pipeline; it
+    is a wrong answer, so it is a hard failure.
     """
     try:
         import pandas_market_calendars as mcal
-    except ImportError:  # pragma: no cover - exercised only without the dep
-        import warnings
-
-        warnings.warn(
-            "pandas_market_calendars is not installed; falling back to business "
-            "days. Market holidays will be misclassified -- install it before "
-            "building the panel.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return pd.DatetimeIndex(pd.bdate_range(start, end))
+    except ImportError as exc:  # pragma: no cover - environment-dependent
+        raise ImportError(
+            "pandas_market_calendars is required: every lag, lead and "
+            "session mapping in this project is defined against the exchange "
+            "calendar, and substituting business days would silently treat ~9 "
+            "market holidays a year as trading sessions.\n"
+            "    pip install pandas-market-calendars"
+        ) from exc
 
     sched = mcal.get_calendar(config.MARKET_CALENDAR).schedule(start_date=start, end_date=end)
     return pd.DatetimeIndex(sched.index).normalize()

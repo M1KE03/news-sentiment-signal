@@ -334,7 +334,14 @@ def coverage_profile(
 
     from src import align
 
-    day = align.map_to_trading_day(ts, calendar)
+    # `check_date_only=False` on purpose. The guard exists to stop the intraday
+    # close rule being applied to date-only stamps on the *analysis* path, where
+    # it would fabricate an information boundary. Here the mapping only bins
+    # headlines to count coverage: for a date-only source it shifts every
+    # headline by at most one session, which leaves the per-session distribution
+    # and the zero-news share materially unchanged. The analysis path must still
+    # use the deferred mapper.
+    day = align.map_to_trading_day(ts, calendar, check_date_only=False)
     per_day = day.value_counts().reindex(pd.DatetimeIndex(calendar), fill_value=0)
     out["n_unassignable"] = int(day.isna().sum())
     out["per_session_mean"] = CorpusRate("per_session_mean", float(per_day.mean()))

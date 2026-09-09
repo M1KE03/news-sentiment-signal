@@ -37,18 +37,69 @@ def session_closes(calendar: pd.DatetimeIndex) -> pd.DatetimeIndex:
     return closes.tz_localize(config.TZ_MARKET)
 
 
-def map_to_trading_day(ts_et: pd.Series, calendar: pd.DatetimeIndex) -> pd.Series:
-    """D6. Headline stamped s belongs to trading day t iff s in (close(t-1), close(t)].
+# A concentration check needs enough observations to mean anything: a handful of
+# timestamps legitimately covers only a handful of distinct minutes.
+DATE_ONLY_CHECK_MIN_N = 200
+
+
+def _reject_date_only(ts: pd.Series) -> None:
+    """Refuse date-only timestamps in the intraday mapper (B05 §6, B07).
+
+    B07's actual-session-close work is descoped because the selected corpus
+    carries no times. That descope is only safe if the intraday rule can never
+    be applied to date-only stamps by accident, so this mapper and
+    `map_date_to_session` refuse each other's inputs.
+
+    Skipped below `DATE_ONLY_CHECK_MIN_N` rows, where concentration is not
+    evidence of anything.
+    """
+    if len(ts) < DATE_ONLY_CHECK_MIN_N:
+        return
+    from src import audit  # local import: audit imports data, which imports config
+
+    prof = audit.timestamp_profile(ts)
+    if prof["looks_date_only"]:
+        raise ValueError(
+            "map_to_trading_day received date-only timestamps "
+            f"({prof['modal_share']:.1%} of stamps at {prof['modal_time']}, "
+            f"{prof['distinct_minutes']} distinct minutes-of-day). Applying the "
+            "intraday close rule to them would assign each headline to the "
+            "session it was dated rather than deferring it. Use "
+            "map_date_to_session instead."
+        )
+
+
+def map_to_trading_day(
+    ts_et: pd.Series,
+    calendar: pd.DatetimeIndex,
+    prior_close: pd.Timestamp | None = None,
+    check_date_only: bool = True,
+) -> pd.Series:
+    """Headline stamped s belongs to session t iff s in (close(t-1), close(t)].
 
     News arriving after the close, at the weekend, or on a holiday rolls forward
-    into the next session's window. Headlines falling after the last session in
-    `calendar` get NaT -- they have no assignable trading day and must be dropped
-    rather than clipped onto the final day.
+    into the next session's window.
+
+    **Both** calendar edges return NaT, so out-of-window news is dropped rather
+    than clipped:
+
+    * after the last session -- no assignable session;
+    * at or before the start of the first session's window -- the first
+      session's window opens at the *previous* session's close, which is outside
+      `calendar` and therefore unknown. Without it, everything earlier would pile
+      onto the first session (B05 defect D-1: five years of pre-window headlines
+      landed on one day). Pass `prior_close` -- the close of the session
+      immediately before `calendar[0]` -- to populate the first session properly;
+      leave it None to drop that session's news, which costs one session out of
+      the sample and cannot be wrong.
     """
     ts = pd.to_datetime(pd.Series(ts_et).reset_index(drop=True))
     if ts.dt.tz is None:
-        raise ValueError("ts_et must be timezone-aware; localize at load time (§4)")
+        raise ValueError("ts_et must be timezone-aware; localize at load time")
     ts = ts.dt.tz_convert(config.TZ_MARKET)
+
+    if check_date_only:
+        _reject_date_only(ts)
 
     closes = session_closes(calendar).sort_values()
     # side="left" -> first close >= s, which is exactly the (close(t-1), close(t)]
@@ -56,7 +107,16 @@ def map_to_trading_day(ts_et: pd.Series, calendar: pd.DatetimeIndex) -> pd.Serie
     idx = closes.searchsorted(ts.to_numpy(), side="left")
 
     days = pd.Series(pd.NaT, index=ts.index, dtype="datetime64[ns]")
-    ok = idx < len(closes)
+    ok = idx < len(closes)                                    # upper edge
+
+    if prior_close is None:
+        ok &= idx > 0                                         # lower edge: drop session 0
+    else:
+        lower = pd.Timestamp(prior_close)
+        if lower.tz is None:
+            raise ValueError("prior_close must be timezone-aware")
+        ok &= (idx > 0) | (ts.to_numpy() > lower.tz_convert(config.TZ_MARKET))
+
     sessions = pd.DatetimeIndex(closes).tz_localize(None).normalize()
     days.loc[ok] = sessions[idx[ok]]
     return days
