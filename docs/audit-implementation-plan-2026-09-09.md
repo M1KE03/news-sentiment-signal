@@ -4,7 +4,33 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
-**R03b complete (latest). R01a–R01d, R02, R03a, R03c, R04a, R04b and R05 complete.**
+**R03d complete (latest) — the corpus track is closed. R01a–R01d, R02, R03a–R03d, R04a, R04b and R05 complete.**
+
+### R03d — verified rebuild, and a pin that was wrong
+
+The corpus was rebuilt end to end through R02's verified acquisition path and the
+artifact replaced. Full numbers in the [dedup lineage contract](dedup-lineage-contract.md) §9.
+
+**The pinned digest was wrong, and R02's guard caught it.** The first assembly
+refused to publish: the streamed file's SHA-256 was `5d4c0180…`, not the pinned
+`dde52918…`. HuggingFace's `paths-info` API for the pinned revision reports
+`lfs.oid` = `5d4c0180…` — Git LFS OIDs are sha256-of-content — and `xetHash` =
+`dde52918…`. B04 had recorded the value from the HTTP **ETag**, which HF serves
+as the Xet hash for Xet-backed files; `data-audit-fnspid.md` even labelled the
+row "File sha256 (etag)". **The file never changed**: same revision, same
+5,731,397,037 bytes, same content. Only the pin was mislabelled. `config` now
+holds the real SHA-256 with `NEWS_FILE_XET_HASH` kept for traceability. Nothing
+was written on the failed run — which is precisely the behaviour R02 was built
+for, and it also means the pre-R02 corpus had never had its digest checked.
+
+**The rebuilt raw corpus is byte-identical data**: 1,412,524 rows, identical
+`headline_id` set and identical `text_norm` multiset. **Clean corpus 869,205 →
+869,183** (−22; symmetric difference 2,314 ids, 0.27%), split **539,087 exact /
+4,254 near**, tickers 5,707 → **6,235**, tag slots → **1,385,810**, top-10
+2.09% → **2.04%**. Census reconciles at **869,092 + 91 = 869,183** and **D4
+holds** — no year below tolerance, one structural zero-news session.
+
+### Previous checkpoint: R03b
 
 ### Environment: the scoring blocker has cleared
 
@@ -326,7 +352,7 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | ✅ R03a — dedup lineage | **Done 2026-09-09** — [dedup lineage contract](dedup-lineage-contract.md). Representative ordering, `source_row_id`, group lineage, unioned tags, re-anchored exact window, corrected blocking boundary; dedup clusters separated from article groups | Impact quantified on the real corpus rather than fixtures: 75.7% of (group, ticker) pairs destroyed; exact/near split wrong by 96.2% of the near count; membership effect only 93 ids; output not order-invariant (10.78% tag churn). Four decisions requested in §7 | B04/B11; A12 |
 | ✅ R03b — dedup repairs | **Done 2026-09-09.** `src/data.py`, `data/raw/download.py`, `tests/test_data.py`: re-anchored exact window, total representative order `(ts_utc, source_row_id)`, unioned tags, lineage artifact, corrected boundary; elimination chains resolved to a surviving root | 9 new tests, 216 passing 0 skipped. On the real corpus: order invariance verified (symmetric difference 0, was 2,363 ids and 10.78% tag churn), exact drops 539,087 as predicted, tickers 5,707 → 6,235, rate recomputable from lineage | R03a; A12 |
 | R03c — census correction | `src/audit.py`, audit tests/docs: derive all counts from one session assignment | Totals reconcile; real saved corpus reports 869,114 assigned headlines and one boundary zero; yearly window decision reviewed without outcome fitting | A06; independent of model setup |
-| R03d — corpus verification checkpoint | Run the repaired raw-to-clean path only after membership effects are reviewable; persist manifest and lineage | Compare IDs/counts against old corpus, explain changes, revalidate coverage and record decision before replacement | R02/R03a–c; required before final annotation draw |
+| ✅ R03d — corpus verification checkpoint | **Done 2026-09-09.** Rebuilt raw → clean through the verified path; manifest now records `verified_against_pin: true`; lineage persisted | Raw data identical (same id set and `text_norm` multiset); clean corpus 869,205 → 869,183, symmetric difference 2,314 (0.27%); census reconciles 869,092 + 91; **D4 holds**. Surfaced and corrected a mislabelled `NEWS_FILE_SHA256` (HF `xetHash` from the ETag, not a SHA-256) | R02/R03a–c; required before final annotation draw |
 | R04a — market/calendar repair | `src/data.py`, `src/align.py`, loader/panel tests: calendar before returns, inclusive end handling, explicit warmup | Missing Tuesday makes Wednesday's return undefined; no one-session target spans a gap; final session requested; warmup does not expand analysis dates | Reopen B08, prepare B16; A04 |
 | R04b — score-to-panel gate | `src/align.py`, `run_all.py`, alignment tests: unique IDs, complete finite scores, required scorer set, artifact validation | Partial values, missing rows, duplicate IDs and incompatible measurements fail before aggregation | R01, A03/A15 |
 | ✅ R05 — protocol amendments | `docs/inference-protocol.md`, `docs/validation-protocol.md`, decision log | **Done 2026-09-09.** M1 precision approximation, M2 overlapping conclusions and boundaries, M3 classifier multiplicity, M4 group accuracy uncertainty, M5 training-overlap wording, M6 shift domain. **M7 (HAC spacing, A09) deferred to R07c by decision** | A09/A10; no real results required |

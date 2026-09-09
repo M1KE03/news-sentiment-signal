@@ -46,7 +46,22 @@ NEWS_SOURCE = "fnspid_benzinga"
 NEWS_RAW_FILE = "Stock_news/All_external.csv"
 NEWS_HF_REPO = "Zihan1004/FNSPID"
 NEWS_HF_REVISION = "bf9189c41527198897d1af3e17b1a0095279fc45"
-NEWS_FILE_SHA256 = "dde529189c87048a8be1f73d17ecd5e211fc7809032e60c72cd22645f111c470"
+# CORRECTED 2026-09-09 (R03d). This field previously held
+# dde529189c87048a8be1f73d17ecd5e211fc7809032e60c72cd22645f111c470, which is
+# **not** a SHA-256 of the file: it is HuggingFace's `xetHash`, a Xet
+# content-addressing digest, recorded at B04 under a SHA-256 name. The value
+# below is the real SHA-256 of the file's bytes, confirmed two independent ways:
+# HF's paths-info API reports it as the Git LFS `oid` for this exact revision
+# (LFS OIDs are sha256-of-content), and streaming the 5.73 GB file and hashing
+# it as it was consumed produced the same digest.
+#
+# Nothing about the data changed. The revision, the byte length and the content
+# are identical; only the pin was mislabelled, and R02's verification is what
+# surfaced it -- the first assembly run after R02 refused to publish and wrote
+# nothing, which is the behaviour that guard exists for.
+NEWS_FILE_SHA256 = "5d4c018036bd82ca821da71b7a9c0c7db3289642e0fc6f897ea69f4a0c5135c3"
+# Kept for traceability: the value B04 recorded, and what it actually is.
+NEWS_FILE_XET_HASH = "dde529189c87048a8be1f73d17ecd5e211fc7809032e60c72cd22645f111c470"
 NEWS_FILE_BYTES = 5_731_397_037
 NEWS_LICENCE = "CC BY-NC 4.0 (non-commercial)"
 

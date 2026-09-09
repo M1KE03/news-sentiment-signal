@@ -2,7 +2,9 @@
 
 Date: 2026-09-09.
 
-**Status: ready for review; implementation under this plan has not started.** The user accepted research proposals P01-P33, then requested this plan in the chat and in `docs/` before giving the implementation go-ahead. Preparing this plan is documentation work only.
+**Status: in execution. B01-B09 and B12-B14 are complete; the corpus is assembled and D4 is frozen.** A [project audit](project-audit-2026-09-09.md) on 2026-09-09 found fifteen issues in the work done under this plan, and the [repair sequence](audit-implementation-plan-2026-09-09.md) is now the authoritative execution order — it sits inside this plan's B01-B28 rather than replacing it. Current state is in [`handover.md`](handover.md).
+
+> **Corrected 2026-09-09 (A14).** This line previously read "implementation under this plan has not started" and remained there through fourteen completed increments, so a reader picking the project up was told to begin at B01.
 
 Related documents: [accepted proposals and decision history](research-review-decision-log.md), [completed scope draft](protocol-revision-draft.md), and [original implementation plan](implementation-plan-original.md).
 

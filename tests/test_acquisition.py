@@ -188,8 +188,8 @@ def test_dedup_step_produces_the_analysis_input(offline, tmp_path, monkeypatch):
     # the frozen corpus, while publishing into tmp_path.
     lin_path = dl.lineage_path(clean)
     assert lin_path.parent == clean.parent
-    assert not config.DEDUP_LINEAGE_PARQUET.exists(), (
-        "lineage was written to the configured path instead of beside `out`"
+    assert lin_path != config.DEDUP_LINEAGE_PARQUET, (
+        "lineage path must be derived from `out`, not read from config"
     )
     lineage = pd.read_parquet(lin_path)
     assert len(lineage) == 3

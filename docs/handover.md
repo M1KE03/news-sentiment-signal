@@ -1,6 +1,6 @@
 # Handover
 
-Date: 2026-09-09. Written at the close of Phase B; updated after corpus assembly.
+Date: 2026-09-09. Written at the close of Phase B; updated after corpus assembly, and again after the 2026-09-09 audit repairs (R01–R05, R03a/R03b).
 
 Read this first if you are picking the project up. It records what exists, what was decided and why, what is deliberately absent, and what blocks the next step. Authority for each decision lives in the linked document; this file is a map, not a substitute.
 
@@ -10,9 +10,11 @@ Related: [implementation plan](implementation-plan.md) (B01–B28) · [decision 
 
 ## 1. Where the project stands, in one paragraph
 
-The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: 869,205 deduplicated Benzinga headlines over 2,516 trading sessions, with D4 now frozen on coverage evidence. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
+The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: **869,183** deduplicated Benzinga headlines over 2,516 trading sessions, with D4 frozen on coverage evidence. A full project audit on 2026-09-09 found fifteen issues (A01–A15); **eleven of the thirty repair increments are complete**, covering scoring-cache identity and durable checkpoints, verified acquisition, the census mapping, the market-return calendar, the score-to-panel gate, the protocol amendments and the deduplication lineage. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
 
-**120 tests pass, 7 skip** (the skips are VADER and FinBERT, which are optional until scoring begins).
+**216 tests pass, 0 skip.** The seven long-standing skips were FinBERT and VADER; Smart App Control has since been disabled, so `torch` loads and every test executes.
+
+The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-09.md), which sits inside the B01–B28 roadmap below and is the authoritative execution order.
 
 ## 2. What the study is
 
@@ -71,7 +73,8 @@ What the sample **cannot** support, and was therefore withheld rather than estim
 - **RQ2 inadmissible.** No sub-corpus is both intraday-stamped and relevant. The date-only fallback is active.
 - **Universe:** Benzinga sub-corpus, chosen on relevance and coverage before any return relationship was examined. Zacks/SeekingAlpha recorded *now* as a later pooled sensitivity so that choice cannot be made after seeing a coefficient.
 - **Window:** 2010-01-01 … 2019-12-31, flagged `SAMPLE_WINDOW_PROVISIONAL`.
-- **Pinned:** FNSPID repo `bf9189c4…`, file sha256 `dde52918…` (5,731,397,037 bytes), FinBERT `4556d130…`. Licence CC BY-NC 4.0, non-commercial.
+- **Pinned:** FNSPID repo `bf9189c4…`, file sha256 `5d4c0180…` (5,731,397,037 bytes), FinBERT `4556d130…`. Licence CC BY-NC 4.0, non-commercial.
+  **Corrected 2026-09-09 (R03d):** the sha256 was originally recorded as `dde52918…`, taken from the HTTP **ETag**. HuggingFace serves its `xetHash` as the ETag for Xet-backed files, so the pin held a different hash function's output under a SHA-256 name. The file itself never changed.
 
 A guard was added to `run_all.py` so nothing could run while the fallback flag was inert.
 
@@ -141,15 +144,15 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | B10 | PhraseBank loader compatibility | ⬜ | `datasets==4.0.0` removed dataset scripts and `trust_remote_code`; `src/validate.load_phrasebank` will not run as pinned. Needed only if the §2 fallback is used |
 | B11 | Prediction-blind annotation sample | ⬜ | Blocked on corpus assembly. **External dependency: human labelling** |
 | B12 | FinBERT class probabilities | ✅ | `scoring.Classifier`, `predict_proba`/`predict`, `validate.predictions_for`; label order checked against the pin at construction |
-| B13 | Scoring-provenance / cache invalidation | ✅ | `fingerprint` per scorer, `.meta.json` sidecar, `IncompatibleCache` |
-| B14 | Batch checkpoints, resumable scoring | ✅ | atomic checkpointed writes; interruption test |
+| B13 | Scoring-provenance / cache invalidation | ✅ | **Reopened by audit A01, closed again by R01a/R01b.** Fingerprints compare by JSON representation; FinBERT records the revision actually passed to its constructor; `text_sha256` detects changed headlines; a changed scorer fingerprint invalidates that whole cached column |
+| B14 | Batch checkpoints, resumable scoring | ✅ | **Reopened by audit A02, closed again by R01c/R01d.** Scores and provenance in one Parquet file, one replacement commit point, a process-held writer lock, explicit legacy refusal — [checkpoint contract](scoring-checkpoint-contract.md), 30 tests |
 | B15 | Paired classification uncertainty | ⬜ | Specified in B01 §7 |
 
 ### Phase D — panel and inference
 
 | ID | Task | Status | Notes |
 |---|---|---|---|
-| B16 | Volume naming; context-plot contract | 🟡 | `close_adj` now reaches the panel (part of P29). Renames `log_turnover`→`log_volume`, `parkinson`→`rv_parkinson` outstanding |
+| B16 | Volume naming; context-plot contract | 🟡 | `close_adj` now reaches the panel (part of P29). Renames `log_turnover`→`log_volume`, `parkinson`→`rv_parkinson` outstanding — **R07a** |
 | B17 | Primary next-day regression on a fixture | 🟡 | `inference.predictive` exists and runs; not yet verified against the B02 eligibility rules |
 | B18 | Secondary family + paired scorer contrast | 🟡 | BH implemented; **BY sensitivity and the stacked `delta` contrast are not** |
 | B19 | Timing diagnostic corrected | ⬜ | Still block-resamples with replacement; B02 §9 specifies the circular shift |
@@ -160,7 +163,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | ID | Task | Status |
 |---|---|---|
 | B21 | Derivation + simulation | ⬜ |
-| B22 | Scoring pilot and extrapolation | ⛔ **blocked** — torch DLLs refused by Smart App Control |
+| B22 | Scoring pilot and extrapolation | ⬜ **unblocked 2026-09-09** — Smart App Control disabled; `torch 2.14.0+cpu` loads and FinBERT runs. Pilot not yet measured — **R10/R11** |
 | B23 | Bounded, resumable scoring run | ⬜ |
 | B24 | Independent classification results | ⬜ |
 | B25 | Core panel and primary market results | ⬜ |
@@ -173,15 +176,56 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | B27 | Evidence-based captions, report, README | ⬜ |
 | B28 | Clean-directory reproduction check | ⬜ |
 
+### The audit repair sequence (the live plan)
+
+Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2026-09-09.md), repaired in the thirty increments of the [repair plan](audit-implementation-plan-2026-09-09.md). **Eleven complete, nineteen remaining.**
+
+| Increment | Finding | State |
+|---|---|---|
+| R01a–R01d | A01, A02 | ✅ Cache identity, validation scope, checkpoint contract, durable recovery |
+| R02 | A05 | ✅ Verified acquisition: pinned revision, stream digest, atomic publication, raw/clean separation |
+| R03a, R03b | A12, A11 | ✅ Dedup lineage contract and its implementation |
+| R03c | A06 | ✅ Census derived from one session assignment |
+| R04a, R04b | A04, A03 | ✅ Returns on the calendar; complete-score gate before aggregation |
+| R05 | A10, A09 | ✅ Six protocol amendments; M7 (HAC spacing) deferred to R07c |
+| R03d | — | ▶ **Next.** Verified rebuild and corpus replacement |
+| R06a, R06b | A11 | ⬜ Blind sample; label ingestion and paired metrics |
+| R07a–R07d | A07, A09 | ⬜ Panel fields, primary fixture, HAC spacing, precision contract |
+| R08a–R08c | A08 | ⬜ Return families, paired scorer contrast, timing diagnostic |
+| R09, R10 | A14, A13, A15 | ⬜ Documentation, preflight and pilot readiness |
+| R11, R12 | — | ⬜ Pilot and bounded scoring; the mathematical demonstration |
+| R13a, R13b | — | ⬜ Empirical validation and primary analysis |
+| R14, R15 | — | ⬜ Reproduction and presentation |
+
+Six findings are closed (A01–A06), A15 is partly closed, and eight remain open (A07–A14 less A12).
+
 ### Carried defects not yet fixed
 
 | Item | Where | Increment |
 |---|---|---|
-| Figure titles assert conclusions before results exist (P24) | `src/plots.py` — "Same-day association, next-day nothing"; "heavier trading"; "lexicons over-predict neutral" | B27 |
-| README states findings as filled-in placeholders | `README.md` | B27 |
-| Report skeleton still uses original-plan language in places | `report/report.md` | B27 |
-| Placebo resamples blocks with replacement | `inference.permutation_pvalue` | B19 |
-| `requirements.txt` versions are declared, not `pip freeze`d | | B28 |
+| Figure titles assert conclusions before results exist (P24) | `src/plots.py` — "Same-day association, next-day nothing"; "heavier trading"; "lexicons over-predict neutral" | B27 / R09 |
+| README and report assert that a transformer reads financial sentences better than a word counter, as a premise | `README.md:5`, `report/report.md:12` | B27 / R09 |
+| README states findings as filled-in placeholders | `README.md` | B27 / R09 |
+| Report skeleton still uses original-plan language in places | `report/report.md` | B27 / R09 |
+| Placebo resamples blocks with replacement | `inference.permutation_pvalue` | B19 / R08c |
+| Primary model uses raw `log_turnover`, not the protocol's 63-session detrend | `src/inference.py:95` | R07a/R07b |
+| `clears_costs` frames a coefficient as strategy profitability, which the inference protocol §11 forbids | `src/inference.py:225` | R07d / R08 |
+| Source filter matches by substring, so `notbenzinga.com` would pass | `src/data.py:94` | audit follow-up |
+| `config.AGG` is never read by `aggregate_daily` — an inert flag | `config.py:138` | audit follow-up |
+| `requirements.txt` versions are declared, not `pip freeze`d | | B28 / R10 |
+
+**One carried defect was closed by measurement rather than by code.** A test
+asserted that FinBERT would not call "Costs fell sharply in the third quarter"
+negative — Exhibit A's premise that a context model sees what a word counter
+cannot. It had never executed, because torch was blocked. On its first real run
+it failed: FinBERT calls that headline **negative with P = 0.932**, and "Profit
+warning smaller than feared" **negative with P = 0.924**. Both are the cases the
+fixture was built to demonstrate. The B12 label-order pin is confirmed correct
+against the real checkpoint, so this is not a code defect; the assertion was
+removed rather than inverted and replaced with a characterization record. Six
+invented sentences measure nothing in either direction — Act 1 measures
+classification quality on independently annotated corpus text — but the premise
+in the README and report is no longer free.
 
 ## 5. Corpus assembly and census — done
 
@@ -191,23 +235,44 @@ Streamed the whole 5.73 GB file once (13,057,514 rows, 11.5 min), storing only t
 
 | Measurement | Result |
 |---|---|
-| Dedup rate | **38.5%** (431,602 exact + 111,717 near) |
-| Headlines per session | mean 345.4, median **337** |
+| Dedup rate | **38.5%** — corrected split **539,087 exact + 4,254 near** (R03b) |
+| Headlines per session | mean 345.4, median **337** (corrected by R03c) |
 | Zero-news sessions | **1**, structural (the window's first session); no real outage |
-| Distinct tickers | 5,707; top-10 share 2.1%; effective 1,839 names |
+| Distinct tickers | **6,235**; top-10 share **2.04%**; effective **1,809** names (R03b, tags unioned) |
 | Coverage stability | no year below tolerance → **D4 frozen** |
 
-`interim/headlines_raw.parquet` (1,412,524) keeps the pre-dedup corpus so the rate stays checkable; `interim/headlines.parquet` (869,205) is the analysis input.
+> **Three of these figures were wrong when first published, and all three were
+> corrected by measurement rather than by re-reading the code.**
+>
+> - The **median and zero-news count** (339 and 2) were artifacts of the census
+>   assigning sessions with one mapping rule and then re-mapping with another;
+>   the two disagreed on 2,502 of 2,516 sessions (A06 / R03c).
+> - The **exact/near split** was 431,602 / 111,717 because the exact-duplicate
+>   window anchored on a text's first-ever occurrence rather than its last kept
+>   one, so later clusters of exact repeats were charged to the near count.
+>   **96.2% of the reported near-duplicate count was actually exact
+>   duplication** (A12 / R03b).
+> - The **ticker figures** counted surviving tags, not companies covered: a
+>   story filed under three tickers kept one. 75.7% of distinct (cluster,
+>   ticker) pairs were being discarded. Unioning them *lowers* concentration, so
+>   the D4 universe decision is unaffected and marginally better supported
+>   (A12 / R03b).
+
+`interim/headlines_raw.parquet` (1,412,524) keeps the pre-dedup corpus so the rate stays checkable; `interim/headlines.parquet` (869,183) is the analysis input; `interim/dedup_lineage.parquet` (1,412,524) records what happened to every raw row, so the rate is recomputable from the artifacts rather than only reproducible by re-running the pass.
+
+**Both artifacts were rebuilt at R03d (2026-09-09) through the verified acquisition path**, and the raw manifest now records `verified_against_pin: true` for the first time. The raw corpus is byte-for-byte the same data as before — identical row count, identical id set, identical `text_norm` multiset — so the rebuild changed provenance and row identifiers, not content.
 
 Two corrections came out of it, both recorded: the earlier "0.05% malformed timestamps" was an artifact of byte-range slicing, not a property of the file (the full read produced **zero**); and the window's end bound was inclusive of the following midnight, which for a date-only corpus admitted a whole extra day.
 
 ## 5a. The next increment
 
-**B22 — the scoring pilot.** `rescore.py --time-only` times FinBERT on 1,000 headlines and extrapolates. 869,205 headlines is the real workload, and the budget question must be answered by measurement before a full pass is launched. `torch` and `transformers` are not yet installed.
+**R03d — the corpus verification checkpoint**, then **R06a**. R03d rebuilds raw → clean through R02's verified acquisition path with R03b's rules, diffs membership against the previous artifact, recomputes the census and concentration, and replaces the frozen corpus. It must complete **before any annotation sample is drawn and before any scoring**, because a sample drawn from a corpus that later changes is a sample thrown away.
 
-If the projected time is unacceptable, the plan's rule is to shorten the *window* and record it — **never** to subsample headlines within days, which would bias both `S_t` and `d_t`. Note that shortening the window now means unfreezing D4, which requires a dated log entry.
+R06a then draws the blind annotation sample and hands it to an annotator. That ordering is deliberate: annotation is the only dependency with human latency, so it starts as early as possible and the inference track (R07a–R08c, seven fixture-based increments needing nothing external) fills the wait.
 
-In parallel and independent of scoring: **B12** (FinBERT class probabilities, preserving the verified label order) and **B10** (the PhraseBank loader), plus obtaining the Loughran–McDonald dictionary.
+**B22, the scoring pilot, is now unblocked** — `torch` loads. `rescore.py --time-only` times FinBERT on 1,000 headlines and extrapolates before a full pass is launched. If the projected time is unacceptable, the plan's rule is to shorten the *window* and record it — **never** to subsample headlines within days, which would bias both `S_t` and `d_t`. Shortening the window means unfreezing D4, which requires a dated log entry.
+
+Still needed from outside the code: the Loughran–McDonald dictionary and a named annotator.
 
 ## 6. Blockers and external dependencies
 
@@ -216,7 +281,7 @@ In parallel and independent of scoring: **B12** (FinBERT class probabilities, pr
 | **Loughran–McDonald dictionary** not obtained | Any LM scoring; Act 1 | Download by hand from the Notre Dame SRAF site (no stable link) into `data/raw/LoughranMcDonald_MasterDictionary.csv`, then record the release in `config.LM_DICT_VERSION` |
 | **Human annotation** not started | B11, B15, B24, all of Act 1 | Needs a named annotator; ideally a second on a 20% subset for kappa. Protocol is written and executable |
 | ~~Window not frozen~~ | — | **Resolved**: frozen 2026-09-09 on the census |
-| **Smart App Control blocks `torch`** | B22, B23, all FinBERT scoring | `torch` is installed but `WinError 4551` refuses `torch/lib/c10.dll`. Turn off Smart App Control in Windows Security -> App & browser control. Not fixable from the code. `transformers` and `vaderSentiment` work |
+| ~~Smart App Control blocks `torch`~~ | — | **Resolved 2026-09-09**: the user disabled Smart App Control. `torch 2.14.0+cpu` and `transformers 5.16.1` load, FinBERT runs, and the seven long-standing skips now execute |
 | `datasets==4.0.0` loader | B10, PhraseBank fallback only | Not on the critical path unless annotation fails |
 
 ## 7. Environment notes
@@ -225,11 +290,12 @@ In parallel and independent of scoring: **B12** (FinBERT class probabilities, pr
 - **Smart App Control blocked scipy's DLLs** on this machine for several increments, making `statsmodels` and `scikit-learn` unimportable. It cleared during B06 and the inference path now runs. If it recurs, the symptom is `ImportError: DLL load failed while importing _comb: An Application Control policy has blocked this file`.
 - `pandas-market-calendars` is now a **hard requirement** — `trading_calendar` raises without it rather than degrading.
 - `data/raw/` is gitignored. The audit sample (`fnspid_sample.parquet`) is local only; regenerate with `python data/raw/download.py --fnspid-sample --slices 24 --slice-mb 6`.
-- `torch`, `transformers` and `vaderSentiment` are **not installed**; two scorer tests skip cleanly until they are.
+- `torch 2.14.0+cpu`, `transformers 5.16.1` and `vaderSentiment` are installed and working. The suite has **no skips**. FinBERT downloads its checkpoint on first use, so the scorer tests need network the first time.
+- **The declared environment is not the tested one** (audit A13). `requirements.txt` pins numpy 2.3.3 / pandas 2.3.2 / torch 2.8.0 / transformers 4.56.1; installed are 2.5.3 / 3.0.5 / 2.14.0 / 5.16.1. The passing suite establishes behaviour here, not in the pinned environment. R10 separates offline unit verification from model integration checks.
 
 ## 8. Repository state
 
-42 files tracked as of the last commit. Uncommitted at the time of writing: `config.py`, `run_all.py`, `src/data.py`, `src/inference.py`, `tests/test_inference.py`, `docs/research-review-decision-log.md` (modified) and `tests/test_data.py` (new) — the B09b work.
+The repair increments R01–R05, R03a and R03b are committed. The working tree at the time of writing carries the R03b/R03d work and this documentation pass; the standing rule is that **the assistant does not perform Git writes**, so staging and commits are the human's.
 
 ```
 docs/
@@ -241,16 +307,21 @@ docs/
   inference-protocol.md             B02
   data-audit-fnspid.md              B03 findings + B04 decisions
   timing-contract.md                B05
+  scoring-checkpoint-contract.md    R01c, implemented R01d
+  dedup-lineage-contract.md         R03a, implemented R03b
+  project-audit-2026-09-09.md       the audit, findings A01-A15
+  audit-implementation-plan-2026-09-09.md   the live repair sequence R01-R15
   handover.md                       this file
 config.py                           every locked decision and pinned artifact
-src/data.py       loading, mandatory source filter, dedup, market, calendar
+src/data.py       loading, mandatory source filter, dedup + lineage, market, calendar
 src/audit.py      per-source profiling; withholds rates a cluster sample cannot support
 src/align.py      both mappers, daily aggregation, panel, all lags and leads
 src/scoring.py    three scorers behind one protocol, hash-keyed cache
 src/validate.py   Act 1 metrics (not yet reworked to the B01 protocol)
 src/inference.py  HAC regressions, BH, placebo, effect sizes
 src/plots.py      one function per figure (titles still assert conclusions — B27)
-tests/            alignment 38 · audit 22 · data 15 · inference 11 · scoring 10
+tests/            216 passing, 0 skipped: alignment · audit · data · inference ·
+                  scoring · checkpoints · acquisition · market
 run_all.py        panel -> tables and figures, with the standing fallback guard
 rescore.py        the one-off scoring pass (--time-only times it first)
 ```

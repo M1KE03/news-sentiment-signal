@@ -262,3 +262,48 @@ One design decision came out of implementation rather than specification: the
 elimination chains above. The assertion that every eliminated row points at a
 survivor was written into the first implementation and **failed on the real
 corpus**, which is how the chains were found.
+
+---
+
+## 9. Execution (R03d, 2026-09-09)
+
+The corpus was rebuilt end to end through R02's verified acquisition path and
+the artifact replaced. The previous artifacts were copied aside first.
+
+**The raw corpus is the same data.** 13,057,514 rows read, 1,412,524 kept, span
+2010-01-01..2019-12-31 — identical row count, **identical `headline_id` set**
+(894,192 distinct) and **identical `text_norm` multiset** to the corpus it
+replaced. The rebuild changed provenance and row identifiers, not content. Its
+manifest records `verified_against_pin: true` for the first time.
+
+**Clean corpus: 869,205 → 869,183 rows**, 1,168 dropped and 1,146 added, a
+symmetric difference of **2,314 ids (0.27%)**. Split **539,087 exact / 4,254
+near**. These differ slightly from §8's dry run (869,194 / 4,243) because that
+run assigned `source_row_id` from the *stored* artifact's row order, while the
+real acquisition assigns it in **file** order before any sort — which is the
+contract's definition, and the difference is exactly the representative-selection
+sensitivity §3.2 exists to eliminate going forward.
+
+**D4 holds.** The census reconciles — **869,092 assigned + 91 unassignable =
+869,183** — and no year falls below the coverage tolerance:
+
+| Year | Sessions | Headlines | Median/session | vs. median | Unstable |
+|---|---:|---:|---:|---:|---|
+| 2010 | 252 | 52,031 | 170.5 | 0.50 | No |
+| 2011–2019 | 2,264 | 817,061 | 285–390 | 0.83–1.14 | No |
+
+Exactly one zero-news session remains, 2010-01-04, and it is structural: under
+the deferred rule the window's first session cannot receive a headline.
+
+**Ticker tags:** 5,707 → **6,235** distinct, 869,205 → **1,385,810** tag slots,
+top-10 share 2.09% → **2.04%**, effective names 1,839 → **1,809**.
+
+**Lineage:** 1,412,524 rows, one per raw row; kept count equals the clean corpus
+exactly; every `cluster_id` resolves to a survivor; the dedup rate recomputed
+from lineage alone is 0.384660.
+
+A defect in the pin surfaced during this step and is recorded separately in the
+[decision log](research-review-decision-log.md): `config.NEWS_FILE_SHA256` held
+HuggingFace's `xetHash`, taken from the HTTP ETag, rather than a SHA-256. R02's
+verification refused to publish and wrote nothing, which is what that guard
+exists to do.

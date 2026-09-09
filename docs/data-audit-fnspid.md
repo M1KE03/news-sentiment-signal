@@ -18,7 +18,8 @@ Companion: [B04 decisions](#8-b04-decisions-universe-window-and-artifacts) below
 | Licence | CC BY-NC 4.0 — **non-commercial**; commercial use prohibited without authorisation |
 | Citation | Dong, Fan & Peng (2024), arXiv:2402.06698 |
 | File audited | `Stock_news/All_external.csv`, 5,731,397,037 bytes (5.7 GB) |
-| File sha256 (etag) | `dde529189c87048a8be1f73d17ecd5e211fc7809032e60c72cd22645f111c470` |
+| File sha256 | `5d4c018036bd82ca821da71b7a9c0c7db3289642e0fc6f897ea69f4a0c5135c3` |
+| HuggingFace `xetHash` (was recorded as the sha256) | `dde529189c87048a8be1f73d17ecd5e211fc7809032e60c72cd22645f111c470` |
 | Second file probed | `Stock_news/nasdaq_exteral_data.csv`, 23.2 GB |
 
 Neither file was downloaded whole. `All_external.csv` was sampled with **24 HTTP range slices of 6 MB each, evenly spaced** — 144 MB, 2.5% of the file, 356,123 parsed rows. `nasdaq_exteral_data.csv` got a lighter 8 × 4 MB probe, 6,671 rows.
@@ -205,7 +206,7 @@ filtered to the selected universe. Nothing but the filtered result was stored.
 | Malformed timestamps | **0** |
 | Rejected as wrong source | 11,528,227 |
 | Kept (Benzinga, 2010–2019) | 1,412,524 |
-| After deduplication | **869,205** |
+| After deduplication | **869,183** |
 
 Largest rejected hosts: `reuters.com` 8,556,310 · `seekingalpha.com` 897,219 ·
 `lenta.ru` 800,975 · `bloomberg.com` 446,656 · `zacks.com` 429,559.
@@ -226,8 +227,8 @@ corpus, with no error and no warning.
 
 | | |
 |---|---|
-| Exact duplicates removed | 431,602 |
-| Near-duplicates removed | 111,717 |
+| Exact duplicates removed | **539,087** |
+| Near-duplicates removed | **4,254** |
 | **Dedup rate** | **38.5%** |
 
 Far from incidental. The dominant cause is the structural one flagged in §6: a
@@ -235,17 +236,35 @@ market-wide roundup is emitted **once per tagged ticker**, so a single editorial
 act appeared once for every symbol it mentioned. Left in place it would have
 weighted that one act by its ticker count in every daily mean.
 
+> **Corrected 2026-09-09 (audit A12 / repair R03b).** The split was previously
+> reported as **431,602 exact + 111,717 near**. The exact-duplicate window
+> anchored on a text's *first-ever* occurrence rather than on its last kept one,
+> so a headline repeated on days 0, 1, 10 and 11 kept both day 10 and day 11 —
+> both lie outside three days of day 0 — and the near pass then removed day 11
+> and charged it to the near count. **96.2% of the reported near-duplicate count
+> was actually exact duplication.** The total rate is unchanged at 38.5%; only
+> the attribution was wrong. With `near_dupe=False` those 107,485 rows had
+> survived outright, so the exact pass did not do what its own docstring said.
+
 Near-duplicate detection uses sliding-window deletion-signature blocking, which
-is exact for the 94.3% of headlines under 20 unique tokens; above that a
-two-token difference could clear the 0.9 threshold unseen. The exposure is
-reported rather than assumed away.
+is exact below **20** unique tokens; at or above that length a two-token
+difference can clear the 0.9 threshold unseen. The exposure is **7.70%** of the
+rows the near pass actually sees, and is reported rather than assumed away.
+
+> **Corrected 2026-09-09 (A12 / R03b).** The boundary was computed as
+> `ceil(2/(1-overlap))`, which returns **21** at `overlap=0.90` because
+> `1 - 0.90` is `0.09999999999999998` in binary floating point. The documented
+> boundary is 20, and a 20-token pair differing by two tokens scores exactly
+> `18/20 = 0.90` and does clear the threshold. The off-by-one excluded 14,494
+> rows from the quoted exposure. It is now computed in exact rational
+> arithmetic.
 
 ### 2. Per-session coverage — dense and near-complete
 
 | | |
 |---|---|
 | Sessions in window | 2,516 |
-| Headlines assigned | 869,114 |
+| Headlines assigned | 869,092 |
 | Unassignable | 91 |
 | Mean headlines/session | 345.4 |
 | Median | 337 |
@@ -257,7 +276,8 @@ reported rather than assumed away.
 > rule, then passed the rows to `coverage_profile`, which re-mapped them with
 > the intraday close rule. The two disagreed on 2,502 of 2,516 sessions and
 > produced a spurious second zero-news day. Every count above now derives from
-> one assignment, and 869,114 + 91 = 869,205 reconciles with the corpus exactly.
+> one assignment. On the rebuilt corpus (R03d) that is **869,092 + 91 = 869,183**,
+> reconciling exactly; before the rebuild it was 869,114 + 91 = 869,205.
 > The earlier median of 339 and "2 zero-news sessions" were artifacts of the
 > mismatch. The yearly stability table below always used the correct mapping, so
 > the D4 freeze is unaffected.
@@ -275,20 +295,33 @@ on essentially the whole sample.
 
 ### 3. Company concentration — well spread
 
-| | |
-|---|---|
-| Distinct tickers | 5,707 |
-| Untagged | 0.00% |
-| Top-10 share | 2.1% |
-| Top-50 share | 8.7% |
-| Top-100 share | 14.7% |
-| Effective number of names (1/HHI) | **1,839** |
+| | Surviving tags (as published) | **Unioned tags** |
+|---|---:|---:|
+| Distinct tickers | 5,707 | **6,235** |
+| Untagged | 0.00% | 0.00% |
+| Top-10 share | 2.09% | **2.04%** |
+| Effective number of names (1/HHI) | 1,839 | **1,809** |
+| Total tag slots | 869,205 | **1,385,810** |
 
 Most covered: EBAY, EWU, BBRY, MRK, SLV, MU, NFLX, QCOM.
 
+> **Corrected 2026-09-09 (audit A12 / repair R03b).** The left column counted
+> **surviving tags, not companies covered by the text.** When one story was
+> filed under three tickers, deduplication kept one row and discarded the other
+> two rows' tags with them — **501,957 of 663,074 distinct (cluster, ticker)
+> pairs, 75.7%**, across 96.8% of multi-row clusters. `dedup` now unions the
+> tags across the cluster, and the right column is what the corpus actually
+> covers.
+>
+> The audit warned that this "weakens the current assurance of low
+> concentration". Measured, it does not: restoring the destroyed tags moves the
+> top-10 share **down** from 2.09% to 2.04%. The D4 universe decision is
+> unaffected and marginally better supported. This is recorded because the check
+> had to be reported whichever way it came out.
+
 This is a better result than the design assumed. The equal-weighted daily mean
 was a stated risk — more-covered companies receive more weight — but with an
-effective 1,839 names and a top-10 share of 2.1%, the aggregate is not carried
+effective 1,809 names and a top-10 share of 2.04%, the aggregate is not carried
 by a handful of mega-caps. It remains "average tone in this collection", not
 market sentiment, and the presence of ETFs (`EWU`, `SLV`) among the most-covered
 names is a reminder that the universe is not a clean equity cross-section.
@@ -326,4 +359,4 @@ be chosen after seeing a result.
 | File | Rows | Meaning |
 |---|---:|---|
 | `interim/headlines_raw.parquet` | 1,412,524 | filtered to the universe, **not** deduplicated; kept so the dedup rate stays checkable |
-| `interim/headlines.parquet` | 869,205 | the analysis input: filtered **and** deduplicated |
+| `interim/headlines.parquet` | 869,183 | the analysis input: filtered **and** deduplicated |

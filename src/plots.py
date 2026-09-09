@@ -66,7 +66,8 @@ def figure_timestamp_audit(profiles: dict[str, pd.Series], verdicts: dict[str, s
         title = name if verdicts is None else f"{name}\n{verdicts.get(name, '')[:60]}"
         ax.set_title(title, fontsize=9)
     axes[0].set_ylabel("share of headlines")
-    fig.suptitle("Are the timestamps real? A single spike means date-only", y=1.04)
+    # P24: names what the panel plots, not what it is expected to show.
+    fig.suptitle("Distribution of publication times within the day, by source", y=1.04)
     fig.tight_layout()
     return fig
 
@@ -92,7 +93,8 @@ def figure1_confusion(results: dict[str, dict]) -> plt.Figure:
         ax.set_xlabel("predicted")
         ax.grid(False)
     axes[0].set_ylabel("true")
-    fig.suptitle("Where each scorer's errors live: the lexicons over-predict neutral", y=1.02)
+    # P24: the error structure is the result, so it cannot be in the title.
+    fig.suptitle("Confusion matrices by scorer, on the evaluation set", y=1.02)
     fig.tight_layout()
     return fig
 
@@ -135,8 +137,11 @@ def figure2_lag_family(
                 fontsize=8,
             )
     axes[0].set_ylabel(r"$\beta$ on $S_t$  (log return per unit sentiment)")
+    # P24: "next-day nothing" asserted the primary result, and "same-day
+    # association" asserts one that RQ2 suppression means will not be estimated
+    # at all on this corpus.
     fig.suptitle(
-        "Same-day association, next-day nothing: coefficients with 95% Newey-West intervals",
+        "Coefficients on $S_t$ by horizon, with 95% pointwise Newey-West intervals",
         y=1.02,
     )
     fig.tight_layout()
@@ -159,7 +164,8 @@ def figure3_dispersion_volume(panel: pd.DataFrame, scorer: str = "finbert") -> p
         ax.legend(frameon=False)
     ax.set_xlabel(f"within-day sentiment dispersion $d_t$ ({SCORER_LABEL.get(scorer, scorer)})")
     ax.set_ylabel("next-day detrended log turnover")
-    ax.set_title("Days when the news disagrees with itself are followed by heavier trading")
+    # P24: this asserted RQ4's answer. It states the axes instead.
+    ax.set_title("Next-session detrended volume against within-day tone dispersion")
     fig.tight_layout()
     return fig
 
@@ -188,7 +194,7 @@ def figure4_context(panel: pd.DataFrame, episodes: dict[str, str] | None = None,
         ax.annotate(label, xy=(ts, ax.get_ylim()[1]), rotation=90, fontsize=7,
                     va="top", ha="right", color="#c0392b")
 
-    ax.set_title("Aggregate headline sentiment against the index -- orientation for the reader")
+    ax.set_title("Aggregate headline tone and the index level")
     fig.tight_layout()
     return fig
 
@@ -215,6 +221,7 @@ def figure_coverage(panel: pd.DataFrame) -> plt.Figure:
             lw=2, color="#c0392b", label="63-day mean")
     ax.set_ylabel("headlines per trading day, $n_t$")
     ax.legend(frameon=False)
-    ax.set_title("News coverage is not stationary -- the subperiod split in Stage 6 exists for this")
+    # P24: whether coverage is non-stationary enough to matter is a finding.
+    ax.set_title("Headlines per session over the sample window")
     fig.tight_layout()
     return fig
