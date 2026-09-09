@@ -65,11 +65,32 @@ def _check_locked_decisions() -> None:
 def build_panel() -> pd.DataFrame:
     """headlines + scores + market -> the single analysis table."""
     headlines = pd.read_parquet(_require(config.HEADLINES_PARQUET, "run Stage 0"))
-    scores, _ = scoring.load_cache(_require(config.SCORES_PARQUET, "run `python rescore.py`"))
+    scores, meta = scoring.load_cache(_require(config.SCORES_PARQUET, "run `python rescore.py`"))
     market = pd.read_parquet(_require(config.MARKET_PARQUET, "run Stage 0"))
 
+    # R04b: the score artifact must declare a measurement identity for every
+    # configured scorer before anything is aggregated. A cache column with no
+    # recorded provenance cannot be attributed to a measurement, and a panel
+    # built from it would carry numbers nobody can trace to an artifact.
+    declared = (meta or {}).get("fingerprints", {})
+    undeclared = [s for s in config.SCORERS if not declared.get(s)]
+    if undeclared:
+        raise SystemExit(
+            f"score cache declares no provenance for {undeclared}.\n"
+            f"  cache: {config.SCORES_PARQUET}\n"
+            "  Re-run scoring so the cache records which measurement produced "
+            "each column; see docs/scoring-checkpoint-contract.md."
+        )
+
     calendar = data.trading_calendar(config.SAMPLE_START, config.SAMPLE_END)
+    # require_complete=True: refuse a partially scored corpus rather than let
+    # each scorer summarise a different subset of each session (audit A03).
     daily = align.aggregate_daily(scores, headlines, calendar)
+    cov = daily.attrs.get("coverage", {})
+    print(
+        f"scores: {cov.get('n_headlines_scored', 0):,} of "
+        f"{cov.get('n_headlines_assigned', 0):,} assigned headlines scored"
+    )
     panel = align.build_panel(daily, market)
 
     # Row shifts are session shifts only if the panel is the complete calendar.

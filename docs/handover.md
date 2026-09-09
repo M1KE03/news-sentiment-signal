@@ -193,7 +193,7 @@ Streamed the whole 5.73 GB file once (13,057,514 rows, 11.5 min), storing only t
 |---|---|
 | Dedup rate | **38.5%** (431,602 exact + 111,717 near) |
 | Headlines per session | mean 345, median 339 |
-| Zero-news sessions | **2 in ten years** |
+| Zero-news sessions | **1**, structural (the window's first session); no real outage |
 | Distinct tickers | 5,707; top-10 share 2.1%; effective 1,839 names |
 | Coverage stability | no year below tolerance → **D4 frozen** |
 

@@ -308,6 +308,7 @@ def coverage_profile(
     calendar: pd.DatetimeIndex | None = None,
     clustered: bool = True,
     ts_col: str = "ts_et",
+    sessions: pd.Series | None = None,
 ) -> dict:
     """Span and per-year counts, plus per-session rates **only if representative**.
 
@@ -315,6 +316,19 @@ def coverage_profile(
     ticker-ordered file) withholds every per-session rate. Those numbers are a
     property of the assembled corpus, not of an arbitrary set of ticker blocks,
     and returning them anyway would be the quiet kind of wrong.
+
+    **Pass `sessions` when the caller has already assigned them** (R03c). This
+    function otherwise falls back to the intraday close rule, which is a
+    *different mapping* from the deferred one the analysis path uses. Reporting
+    coverage under one mapping and running the study under another produced
+    counts that disagreed on 2,502 of 2,516 sessions and an extra zero-news day
+    that was purely an artifact of the mismatch.
+
+    Zero-news sessions are split into two kinds, because they mean different
+    things. Under the deferred rule a session's window opens at the *previous*
+    session, so the first session of the calendar can never receive a headline:
+    that zero is a **boundary exclusion**, structural and expected. Any other
+    zero is an actual absence of news.
     """
     ts = pd.to_datetime(df[ts_col])
     out: dict = {
@@ -332,17 +346,28 @@ def coverage_profile(
             out[r] = CorpusRate(r, withheld_reason=reason)
         return out
 
-    from src import align
+    if sessions is not None:
+        day = pd.Series(sessions).reset_index(drop=True)
+        out["mapping"] = "supplied by caller"
+    else:
+        from src import align
 
-    # `check_date_only=False` on purpose. The guard exists to stop the intraday
-    # close rule being applied to date-only stamps on the *analysis* path, where
-    # it would fabricate an information boundary. Here the mapping only bins
-    # headlines to count coverage: for a date-only source it shifts every
-    # headline by at most one session, which leaves the per-session distribution
-    # and the zero-news share materially unchanged. The analysis path must still
-    # use the deferred mapper.
-    day = align.map_to_trading_day(ts, calendar, check_date_only=False)
-    per_day = day.value_counts().reindex(pd.DatetimeIndex(calendar), fill_value=0)
+        # Fallback only. This is the intraday rule and is NOT the mapping the
+        # analysis path uses for a date-only corpus; callers that have already
+        # assigned sessions must pass them.
+        day = align.map_to_trading_day(ts, calendar, check_date_only=False)
+        out["mapping"] = "intraday close rule (fallback)"
+
+    cal = pd.DatetimeIndex(calendar).normalize()
+    per_day = day.value_counts().reindex(cal, fill_value=0)
+
+    zero = per_day.index[per_day == 0]
+    # Structural under the deferred rule: session 0's window opens before the
+    # calendar starts, so it cannot receive headlines.
+    boundary = [d for d in zero if d == cal[0]]
+    true_zero = [d for d in zero if d != cal[0]]
+
+    out["n_assigned"] = int(day.notna().sum())
     out["n_unassignable"] = int(day.isna().sum())
     out["per_session_mean"] = CorpusRate("per_session_mean", float(per_day.mean()))
     out["per_session_median"] = CorpusRate("per_session_median", float(per_day.median()))
@@ -351,6 +376,11 @@ def coverage_profile(
         "thin_days_share",
         float((per_day < config.MIN_HEADLINES_FOR_DISPERSION).mean()),
     )
+    out["zero_news_dates"] = list(zero)
+    out["boundary_sessions"] = boundary
+    out["true_zero_news_sessions"] = true_zero
+    out["n_boundary_sessions"] = len(boundary)
+    out["n_true_zero_news"] = len(true_zero)
     out["per_day"] = per_day
     return out
 
@@ -535,8 +565,9 @@ def corpus_census(
     out["n_unassignable"] = int(sessions.isna().sum())
     per_session = assigned.dropna(subset=["session"]).groupby("session").size()
 
+    # One assignment, reused. Re-mapping here was audit finding A06.
     out["coverage"] = coverage_profile(
-        assigned.dropna(subset=["session"]), calendar, clustered=False, ts_col="ts_utc"
+        clean, calendar, clustered=False, ts_col="ts_utc", sessions=sessions
     )
     out["per_session"] = per_session
     out["stability"] = window_stability(per_session, calendar)

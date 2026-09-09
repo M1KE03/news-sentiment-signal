@@ -408,29 +408,113 @@ def trading_calendar(start: str, end: str) -> pd.DatetimeIndex:
     return pd.DatetimeIndex(sched.index).normalize()
 
 
-def load_market(start: str, end: str) -> pd.DataFrame:
-    """SPY daily bars + ^VIX close -> the §4 `market` schema."""
+def returns_on_calendar(close: pd.Series, calendar: pd.DatetimeIndex) -> pd.Series:
+    """Log returns defined only between **adjacent exchange sessions** (R04a).
+
+    The defect this exists to prevent (audit A04): computing `diff(log(close))`
+    on whatever rows the price source returned. If a session is missing from
+    that response, the difference silently spans two sessions and still occupies
+    the row labelled with the later date. Reindexing afterwards cannot repair a
+    number that was already computed across the gap, and `build_panel`'s
+    left-join therefore inherited it.
+
+    Prices are placed on the calendar first, so a missing session becomes NaN
+    and both `ret` at that session and `ret` at the following one are NaN --
+    which is the correct answer, because neither is a one-session return.
+    """
+    cal = pd.DatetimeIndex(calendar).normalize()
+    if cal.tz is not None:
+        cal = cal.tz_localize(None)
+    on_cal = pd.Series(close).copy()
+    on_cal.index = pd.DatetimeIndex(on_cal.index).normalize()
+    on_cal = on_cal.reindex(cal)
+
+    logp = np.log(on_cal.astype(float))
+    ret = logp.diff()
+    # diff() propagates NaN forward one row, which is what we want, but make the
+    # requirement explicit: a return needs BOTH adjacent closes present.
+    ret[on_cal.isna() | on_cal.shift(1).isna()] = np.nan
+    return ret
+
+
+def load_market(
+    start: str,
+    end: str,
+    calendar: pd.DatetimeIndex | None = None,
+    warmup_sessions: int = 0,
+) -> pd.DataFrame:
+    """SPY daily bars + ^VIX close, on the exchange calendar.
+
+    Three corrections over the naive version (R04a / audit A04):
+
+    * **Prices are placed on the calendar before returns are computed**, so no
+      return can span a missing session. See `returns_on_calendar`.
+    * **yfinance's `end` is exclusive**, so the configured inclusive end date
+      would silently omit the final session. One day is added to the request.
+    * **`warmup_sessions`** fetches earlier sessions so that the first analysis
+      session has a defined lagged return, and the 63-session volume detrend is
+      defined from the window's start. Warm-up rows are returned and flagged
+      `in_window = False`; they must not widen the analysis window.
+
+    The returned frame spans the calendar, one row per session, with NaN where
+    the price source had no data. Missing sessions are reported in
+    `.attrs["market_stats"]` rather than silently dropped.
+    """
     import yfinance as yf
 
+    if calendar is None:
+        calendar = trading_calendar(start, end)
+    cal = pd.DatetimeIndex(calendar).normalize()
+
+    fetch_from = start
+    if warmup_sessions:
+        warm = trading_calendar(
+            (pd.Timestamp(start) - pd.Timedelta(days=warmup_sessions * 2 + 20)).strftime("%Y-%m-%d"),
+            start,
+        )
+        if len(warm) > warmup_sessions:
+            fetch_from = warm[-(warmup_sessions + 1)].strftime("%Y-%m-%d")
+            cal = pd.DatetimeIndex(warm[-(warmup_sessions + 1) : -1]).append(cal).unique().sort_values()
+
+    # yfinance's `end` is exclusive; without +1 day the final session is lost.
+    fetch_to = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+
     spy = yf.download(
-        config.MARKET_TICKER, start=start, end=end, auto_adjust=True, progress=False
+        config.MARKET_TICKER, start=fetch_from, end=fetch_to, auto_adjust=True, progress=False
     )
     if isinstance(spy.columns, pd.MultiIndex):
         spy.columns = spy.columns.get_level_values(0)
     if spy.empty:
-        raise RuntimeError(f"no {config.MARKET_TICKER} data returned for {start}..{end}")
+        raise RuntimeError(
+            f"no {config.MARKET_TICKER} data returned for {fetch_from}..{fetch_to}"
+        )
+    spy.index = pd.DatetimeIndex(spy.index).normalize()
 
-    vix = yf.download(config.VIX_TICKER, start=start, end=end, progress=False)
+    vix = yf.download(config.VIX_TICKER, start=fetch_from, end=fetch_to, progress=False)
     if isinstance(vix.columns, pd.MultiIndex):
         vix.columns = vix.columns.get_level_values(0)
+    if not vix.empty:
+        vix.index = pd.DatetimeIndex(vix.index).normalize()
 
-    out = pd.DataFrame(index=pd.DatetimeIndex(spy.index).normalize())
+    on_cal = spy.reindex(cal)
+    out = pd.DataFrame(index=cal)
     out.index.name = "date"
-    out["close_adj"] = spy["Close"].to_numpy()
-    out["ret"] = np.log(out["close_adj"]).diff()
-    out["parkinson"] = (np.log(spy["High"] / spy["Low"]).to_numpy() ** 2) / (4 * np.log(2))
-    out["volume"] = spy["Volume"].to_numpy()
+    out["close_adj"] = on_cal["Close"].astype(float)
+    out["ret"] = returns_on_calendar(spy["Close"], cal)
+    out["parkinson"] = (np.log(on_cal["High"] / on_cal["Low"]) ** 2) / (4 * np.log(2))
+    out["volume"] = on_cal["Volume"]
     out["log_turnover"] = np.log(out["volume"].replace(0, np.nan))
-    out["vix_close"] = vix["Close"].reindex(out.index).to_numpy() if not vix.empty else np.nan
+    out["vix_close"] = (
+        vix["Close"].reindex(cal).astype(float) if not vix.empty else np.nan
+    )
+    out["in_window"] = (cal >= pd.Timestamp(start)) & (cal <= pd.Timestamp(end))
 
+    missing = out.index[out["close_adj"].isna()]
+    out.attrs["market_stats"] = {
+        "n_sessions": int(len(cal)),
+        "n_warmup": int((~out["in_window"]).sum()),
+        "n_missing_price": int(len(missing)),
+        "missing_dates": [str(d.date()) for d in missing[:10]],
+        "requested": [fetch_from, fetch_to],
+    }
     return out.reset_index()

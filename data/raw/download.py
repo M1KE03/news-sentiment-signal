@@ -447,15 +447,39 @@ def census_corpus() -> None:
     )
 
 
-def fetch_market() -> None:
-    """SPY + ^VIX for the locked window -> interim/market.parquet."""
+def fetch_market(warmup_sessions: int = 70) -> None:
+    """SPY + ^VIX on the exchange calendar -> interim/market.parquet.
+
+    The default warm-up covers the 63-session trailing volume detrend plus the
+    one prior session the first analysis row's lagged return needs, with a small
+    margin. Warm-up rows carry `in_window = False` and must not widen the
+    analysis window.
+    """
     from src import data as sdata
 
     if config.SAMPLE_START is None or config.SAMPLE_END is None:
         raise SystemExit("D4 is still unresolved -- lock the window in config.py first.")
-    market = sdata.load_market(config.SAMPLE_START, config.SAMPLE_END)
+    calendar = sdata.trading_calendar(config.SAMPLE_START, config.SAMPLE_END)
+    market = sdata.load_market(
+        config.SAMPLE_START, config.SAMPLE_END,
+        calendar=calendar, warmup_sessions=warmup_sessions,
+    )
+    stats = market.attrs.get("market_stats", {})
     config.MARKET_PARQUET.parent.mkdir(parents=True, exist_ok=True)
     market.to_parquet(config.MARKET_PARQUET, index=False)
+    print(
+        f"wrote {config.MARKET_PARQUET}\n"
+        f"  {stats.get('n_sessions', len(market)):,} rows "
+        f"({stats.get('n_warmup', 0)} warm-up, "
+        f"{int(market['in_window'].sum()):,} in window)\n"
+        f"  requested {stats.get('requested')}"
+    )
+    if stats.get("n_missing_price"):
+        print(
+            f"  WARNING: {stats['n_missing_price']} calendar session(s) have no price: "
+            f"{stats['missing_dates']}\n"
+            "  their returns are undefined on both sides of each gap, by design."
+        )
     print(f"wrote {config.MARKET_PARQUET}  ({len(market):,} sessions)")
 
 

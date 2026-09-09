@@ -4,7 +4,70 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
-**R02 completed and fixture-tested (latest).** Acquisition now writes the raw
+**R01d approved; R02, R03c, R04a and R04b complete (latest).**
+
+*R04b (A03/A15)* — `aggregate_daily` inner-joined headlines to scores and let the
+group mean skip missing values, so five headlines with one score row reported
+`n_headlines = 1` and each scorer could summarise a different subset of the same
+session. New `align.validate_scores` requires, and `aggregate_daily` enforces by
+default, that every headline carries exactly one finite in-range score for every
+configured scorer; ids must be unique and non-null on both sides, and the join is
+`validate="one_to_one"` so a duplicate score row cannot multiply a headline's
+weight. The join is now LEFT and every headline is mapped, because an inner join
+makes an unscored headline indistinguishable from one that never existed.
+
+For a *declared* partial pass, `require_complete=False` keeps only sessions whose
+headlines are all scored and reports the rest in `.attrs["coverage"]`, so bounded
+scoring produces whole sessions or none — never a subset of one. `run_all.py`
+additionally refuses a score cache that declares no provenance for a configured
+scorer, before any aggregation.
+
+Verification: 9 new cases in `tests/test_alignment.py` covering the audit's exact
+probe, missing values inside a present row, out-of-range scores, duplicate score
+rows, the complete-coverage path, the declared-partial path, and cached scores for
+headlines outside the request. Full suite **199 passed, 7 skipped**.
+
+*R01d* — the user approved the checkpoint contract under the architecture gate.
+It was already implemented in `src/scoring.py`; verification confirmed all 30
+cases in `tests/test_checkpoints.py` cover the contract's stated failure states,
+and both documents' "approval pending" status was corrected. No code change was
+required.
+
+*R03c (A06)* — `corpus_census` assigned sessions with the deferred rule and then
+passed the rows to `coverage_profile`, which re-mapped them with the intraday
+close rule. `coverage_profile` now accepts pre-assigned `sessions`, and every
+census count derives from one assignment: **869,114 assigned + 91 unassignable =
+869,205**, reconciling with the corpus exactly. Zero-news sessions are now split
+into boundary exclusions and real outages: the corpus has **one** zero-news
+session, 2010-01-04, and it is structural — under the deferred rule the window's
+first session cannot receive a headline. There is **no genuine news outage in
+ten years**, so the D9 exclusion is inert here. The previously reported median
+of 339 and "2 zero-news sessions" were artifacts of the mapping mismatch and are
+corrected in `docs/data-audit-fnspid.md` §11 and the handover. The yearly
+stability table always used the correct mapping, so the D4 freeze is unaffected.
+
+*R04a (A04)* — `load_market` computed `diff(log(close))` over the rows the price
+source returned, before any calendar reindex, so a missing session produced a
+two-session return in the row labelled with the later date. New
+`returns_on_calendar` places prices on the exchange calendar first and requires
+**both** adjacent closes, so a gap makes the returns on either side NaN rather
+than wrong. `load_market` now takes `calendar` and `warmup_sessions`, adds one
+day to yfinance's exclusive `end` (the configured inclusive end would otherwise
+drop the final session), flags warm-up rows `in_window=False` so they cannot
+widen the analysis window, and reports missing sessions in
+`.attrs["market_stats"]`. `fetch_market` passes a 70-session warm-up, covering
+the 63-session volume detrend plus the first row's lagged return.
+
+Verification: 9 new offline cases in `tests/test_market.py`, including the
+audit's exact fixture (Monday 100, Tuesday absent, Wednesday 102 — the naive
+computation gives 0.019803; it is now NaN on both sides), the exclusive-end
+request, warm-up flagging, and an end-to-end check that the contaminated value
+cannot reach `ret_lead1`. Full suite **190 passed, 7 skipped**. No network
+access, corpus scoring, environment change or Git write.
+
+### Previous checkpoint: R02
+
+**R02 completed and fixture-tested.** Acquisition now writes the raw
 corpus only: `assemble_corpus` defaults to `HEADLINES_RAW_PARQUET` and raises
 `AcquisitionError` if pointed at `HEADLINES_PARQUET`, so a documented command
 can no longer replace 869,205 deduplicated rows with 1,412,524 undeduplicated
@@ -39,7 +102,7 @@ were correct by `headline_id`; the assertion now indexes by id. Only
 
 ### Previous checkpoint: R01c
 
-**R01c specification complete; architecture approval pending.** The [checkpoint contract](scoring-checkpoint-contract.md) proposes embedding provenance in the score Parquet file, one replacement commit point, a process-held writer lock, explicit legacy-cache refusal and a narrow validated reader update in `run_all.py`. It specifies metadata fields, interruption states, recovery and R01d acceptance tests. A disposable Arrow metadata round-trip succeeded; no production code changed. R01d implements the proposal after approval under the existing architecture gate.
+**R01c/R01d complete.** The user approved the checkpoint contract under the architecture gate; it is implemented in `src/scoring.py` and verified by 30 cases in `tests/test_checkpoints.py`. The [checkpoint contract](scoring-checkpoint-contract.md) proposes embedding provenance in the score Parquet file, one replacement commit point, a process-held writer lock, explicit legacy-cache refusal and a narrow validated reader update in `run_all.py`. It specifies metadata fields, interruption states, recovery and R01d acceptance tests. A disposable Arrow metadata round-trip succeeded; no production code changed. R01d implements the proposal after approval under the existing architecture gate.
 
 ### Previous checkpoint: R01b
 

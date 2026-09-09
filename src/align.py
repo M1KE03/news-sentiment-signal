@@ -8,6 +8,8 @@ only one of each to audit, and `tests/test_alignment.py` audits them.
 
 from __future__ import annotations
 
+from typing import Sequence
+
 import numpy as np
 import pandas as pd
 
@@ -120,6 +122,96 @@ def map_to_trading_day(
     sessions = pd.DatetimeIndex(closes).tz_localize(None).normalize()
     days.loc[ok] = sessions[idx[ok]]
     return days
+
+
+class IncompleteScoring(RuntimeError):
+    """Raised when the scores do not cover the headlines one-for-one (R04b)."""
+
+
+def validate_scores(
+    headlines_df: pd.DataFrame,
+    scores_df: pd.DataFrame,
+    required: Sequence[str] = config.SCORERS,
+) -> dict:
+    """Every headline must carry exactly one finite, in-range score per scorer.
+
+    Audit A03: `aggregate_daily` inner-joined headlines to scores and let the
+    group mean skip missing values. A session of five headlines with one scored
+    row reported `n_headlines = 1`, and each scorer could silently summarise a
+    *different subset* while the output looked like one common daily sample.
+    That turns bounded scoring into undisclosed within-day sampling, which
+    biases both `S_t` and `d_t` -- exactly what the plan forbids.
+
+    Checks, all of which raise rather than warn:
+
+    * headline ids unique and non-null on both sides;
+    * every headline present in the scores (a partial pass must be declared,
+      not absorbed);
+    * every required scorer column present;
+    * every value finite and within [-1, 1].
+    """
+    problems: list[str] = []
+
+    for name, frame in (("headlines", headlines_df), ("scores", scores_df)):
+        ids = frame["headline_id"]
+        if ids.isna().any():
+            problems.append(f"{name}: {int(ids.isna().sum()):,} null headline_id")
+        dupes = int(ids.duplicated().sum())
+        if dupes:
+            problems.append(
+                f"{name}: {dupes:,} duplicate headline_id "
+                "(a duplicate score row multiplies that headline's weight)"
+            )
+
+    missing_cols = [f"score_{s}" for s in required if f"score_{s}" not in scores_df.columns]
+    if missing_cols:
+        problems.append(f"scores: missing column(s) {missing_cols}")
+
+    covered = scores_df["headline_id"]
+    unscored = headlines_df.loc[~headlines_df["headline_id"].isin(covered), "headline_id"]
+    if len(unscored):
+        problems.append(
+            f"{len(unscored):,} of {len(headlines_df):,} headlines have no score row "
+            f"(e.g. {unscored.head(3).tolist()})"
+        )
+
+    stats: dict = {
+        "n_headlines": int(len(headlines_df)),
+        "n_scored_rows": int(len(scores_df)),
+        "n_unscored": int(len(unscored)),
+        "required": list(required),
+    }
+
+    if not missing_cols:
+        relevant = scores_df[scores_df["headline_id"].isin(headlines_df["headline_id"])]
+        for s in required:
+            col = relevant[f"score_{s}"]
+            n_null = int(col.isna().sum())
+            finite = np.isfinite(col.to_numpy(dtype="float64", na_value=np.nan))
+            n_nonfinite = int((~finite & col.notna().to_numpy()).sum())
+            vals = col.to_numpy(dtype="float64", na_value=np.nan)
+            n_range = int(np.nansum((vals < -1.0) | (vals > 1.0)))
+            stats[f"n_null_{s}"] = n_null
+            if n_null:
+                problems.append(f"score_{s}: {n_null:,} missing value(s) among scored headlines")
+            if n_nonfinite:
+                problems.append(f"score_{s}: {n_nonfinite:,} non-finite value(s)")
+            if n_range:
+                problems.append(f"score_{s}: {n_range:,} value(s) outside [-1, 1]")
+
+    stats["ok"] = not problems
+    stats["problems"] = problems
+    if problems:
+        raise IncompleteScoring(
+            "scores do not cover the headlines one-for-one:\n  - "
+            + "\n  - ".join(problems)
+            + "\nAggregating anyway would let each scorer summarise a different "
+            "subset of each session while reporting one common headline count. "
+            "For a deliberately partial pass, aggregate with "
+            "require_complete=False, which drops incompletely scored sessions "
+            "and reports them."
+        )
+    return stats
 
 
 def _reject_intraday(ts: pd.Series) -> None:
@@ -236,6 +328,8 @@ def aggregate_daily(
     date_only: bool | None = None,
     defer: bool = True,
     prior_session: pd.Timestamp | str | None = None,
+    require_complete: bool = True,
+    required_scorers: Sequence[str] = config.SCORERS,
 ) -> pd.DataFrame:
     """Per trading session: n_t, S_t per scorer, and dispersion d_t.
 
@@ -271,7 +365,18 @@ def aggregate_daily(
             )
         )
 
-    df = headlines_df[["headline_id", ts_col]].merge(scores_df, on="headline_id", how="inner")
+    # R04b gate. `require_complete=True` is the default because the failure it
+    # prevents is invisible in the output: a session summarised from a subset of
+    # its own headlines still reports a headline count and a mean.
+    if require_complete:
+        validate_scores(headlines_df, scores_df, required_scorers)
+
+    # LEFT join, and map EVERY headline -- not only the scored ones. Session
+    # completeness cannot be judged from the scored subset alone: an inner join
+    # makes an unscored headline indistinguishable from one that never existed.
+    df = headlines_df[["headline_id", ts_col]].merge(
+        scores_df, on="headline_id", how="left", validate="one_to_one"
+    )
     if date_only:
         df["date"] = map_date_to_session(
             df[ts_col], calendar, defer=defer, prior_session=prior_session
@@ -280,7 +385,26 @@ def aggregate_daily(
         df["date"] = map_to_trading_day(df[ts_col], calendar, prior_close=prior_session)
     df = df[df["date"].notna()]
 
-    score_cols = [f"score_{n}" for n in config.SCORERS]
+    score_cols = [f"score_{n}" for n in required_scorers]
+    scored = df[score_cols].notna().all(axis=1)
+
+    coverage: dict = {
+        "n_headlines_assigned": int(len(df)),
+        "n_headlines_scored": int(scored.sum()),
+        "require_complete": bool(require_complete),
+    }
+
+    if not require_complete:
+        # A declared partial pass: keep only sessions whose headlines are ALL
+        # scored, and report the rest. Averaging a session's scored subset would
+        # be within-day sampling, which biases S_t and d_t.
+        complete = df.assign(_ok=scored).groupby("date")["_ok"].all()
+        incomplete = complete.index[~complete]
+        coverage["n_sessions_complete"] = int(complete.sum())
+        coverage["n_sessions_incomplete"] = int(len(incomplete))
+        coverage["incomplete_sessions"] = [str(d.date()) for d in incomplete[:10]]
+        df = df[df["date"].isin(complete.index[complete])]
+
     grouped = df.groupby("date")
     daily = pd.DataFrame({"n_headlines": grouped.size()})
     for n in config.SCORERS:
@@ -297,7 +421,10 @@ def aggregate_daily(
     daily = daily.reindex(sessions)
     daily["n_headlines"] = daily["n_headlines"].fillna(0).astype(int)
     daily.index.name = "date"
-    return daily.reset_index()
+    daily.attrs["coverage"] = coverage
+    out = daily.reset_index()
+    out.attrs["coverage"] = coverage
+    return out
 
 
 def assert_sessions_match_calendar(panel: pd.DataFrame, calendar: pd.DatetimeIndex) -> None:

@@ -442,3 +442,108 @@ def test_aggregate_daily_defaults_to_the_configured_fallback():
     daily = align.aggregate_daily(scores, headlines, CALENDAR)   # no date_only arg
     assert config.DATE_ONLY_FALLBACK is True
     assert daily.set_index("date")["n_headlines"].loc[pd.Timestamp("2024-07-01")] == 0
+
+
+# --------------------------------------------------------------------------
+# R04b: the score-to-panel completeness gate (audit A03).
+# --------------------------------------------------------------------------
+
+
+def _scored_headlines(n=5, day="2024-07-02"):
+    heads = pd.DataFrame({
+        "headline_id": [f"g{i}" for i in range(n)],
+        "ts_utc": [pd.Timestamp(day, tz="UTC")] * n,
+    })
+    scores = pd.DataFrame({"headline_id": heads["headline_id"]}
+                          | {f"score_{s}": np.full(n, 0.5) for s in config.SCORERS})
+    return heads, scores
+
+
+def test_partial_scoring_is_refused_by_default():
+    """The A03 fixture: five headlines, one scored, previously reported n=1."""
+    heads, scores = _scored_headlines(5)
+    with pytest.raises(align.IncompleteScoring, match="have no score row"):
+        align.aggregate_daily(scores.head(1), heads, CALENDAR, date_only=True)
+
+
+def test_refusal_names_the_shortfall():
+    heads, scores = _scored_headlines(5)
+    with pytest.raises(align.IncompleteScoring) as exc:
+        align.aggregate_daily(scores.head(2), heads, CALENDAR, date_only=True)
+    msg = str(exc.value)
+    assert "3 of 5 headlines have no score row" in msg
+    assert "within-day sampling" in msg or "different subset" in msg
+
+
+def test_missing_value_within_a_scored_row_is_refused():
+    """A row can exist and still be unusable."""
+    heads, scores = _scored_headlines(5)
+    scores.loc[0, "score_lm"] = np.nan
+    with pytest.raises(align.IncompleteScoring, match="missing value"):
+        align.aggregate_daily(scores, heads, CALENDAR, date_only=True)
+
+
+def test_out_of_range_score_is_refused():
+    heads, scores = _scored_headlines(5)
+    scores.loc[2, "score_finbert"] = 1.4
+    with pytest.raises(align.IncompleteScoring, match=r"outside \[-1, 1\]"):
+        align.aggregate_daily(scores, heads, CALENDAR, date_only=True)
+
+
+def test_duplicate_score_rows_are_refused():
+    """A duplicate score row would multiply that headline's weight in the mean."""
+    heads, scores = _scored_headlines(5)
+    doubled = pd.concat([scores, scores.head(1)], ignore_index=True)
+    with pytest.raises(align.IncompleteScoring, match="duplicate headline_id"):
+        align.aggregate_daily(doubled, heads, CALENDAR, date_only=True)
+
+
+def test_complete_scoring_passes_and_counts_every_headline():
+    heads, scores = _scored_headlines(5)
+    daily = align.aggregate_daily(scores, heads, CALENDAR, date_only=True)
+    row = daily[daily["date"] == pd.Timestamp("2024-07-03")].iloc[0]
+    assert row["n_headlines"] == 5, "all five headlines must be counted"
+    assert row["s_lm"] == pytest.approx(0.5)
+    assert daily.attrs["coverage"]["n_headlines_scored"] == 5
+
+
+def test_declared_partial_pass_drops_incomplete_sessions():
+    """Bounded scoring yields whole sessions or none -- never a subset of one."""
+    heads = pd.DataFrame({
+        "headline_id": [f"g{i}" for i in range(6)],
+        "ts_utc": [pd.Timestamp("2024-07-02", tz="UTC")] * 3
+                  + [pd.Timestamp("2024-07-03", tz="UTC")] * 3,
+    })
+    # 07-02's three are all scored; 07-03 has only two of three.
+    scored_ids = ["g0", "g1", "g2", "g3", "g4"]
+    scores = pd.DataFrame({"headline_id": scored_ids}
+                          | {f"score_{s}": np.full(5, 0.25) for s in config.SCORERS})
+
+    daily = align.aggregate_daily(scores, heads, CALENDAR, date_only=True,
+                                  require_complete=False)
+    # 07-02 defers to 07-03; 07-03 defers past the 07-04 holiday to 07-05.
+    by_date = daily.set_index("date")["n_headlines"]
+    assert by_date.loc[pd.Timestamp("2024-07-03")] == 3, "the complete session survives"
+    assert by_date.loc[pd.Timestamp("2024-07-05")] == 0, "the incomplete one is dropped"
+
+    cov = daily.attrs["coverage"]
+    assert cov["n_sessions_complete"] == 1
+    assert cov["n_sessions_incomplete"] == 1
+    assert cov["incomplete_sessions"] == ["2024-07-05"]
+
+
+def test_validate_scores_returns_stats_when_everything_is_present():
+    heads, scores = _scored_headlines(4)
+    stats = align.validate_scores(heads, scores)
+    assert stats["ok"] and stats["n_unscored"] == 0
+    assert stats["n_headlines"] == 4 and stats["n_scored_rows"] == 4
+
+
+def test_extra_cached_scores_are_harmless():
+    """The cache legitimately holds rows for headlines outside this request."""
+    heads, scores = _scored_headlines(3)
+    extra = pd.DataFrame({"headline_id": ["zz"]}
+                         | {f"score_{s}": [0.9] for s in config.SCORERS})
+    daily = align.aggregate_daily(pd.concat([scores, extra], ignore_index=True),
+                                  heads, CALENDAR, date_only=True)
+    assert daily.set_index("date")["n_headlines"].loc[pd.Timestamp("2024-07-03")] == 3

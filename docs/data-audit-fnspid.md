@@ -245,17 +245,33 @@ reported rather than assumed away.
 | | |
 |---|---|
 | Sessions in window | 2,516 |
+| Headlines assigned | 869,114 |
+| Unassignable | 91 |
 | Mean headlines/session | 345.4 |
-| Median | 339 |
-| Zero-news sessions | **2 (0.08%)** |
-| Sessions with n < 5 (lose d_t) | 0.08% |
-| Unassignable headlines | 91 |
+| Median | 337 |
+| Zero-news sessions | **1**, and it is structural |
+| — of which a real news outage | **0** |
+
+> **Corrected 2026-09-09 (audit A06 / repair R03c).** These figures previously
+> came from a *second* mapping: the census assigned sessions with the deferred
+> rule, then passed the rows to `coverage_profile`, which re-mapped them with
+> the intraday close rule. The two disagreed on 2,502 of 2,516 sessions and
+> produced a spurious second zero-news day. Every count above now derives from
+> one assignment, and 869,114 + 91 = 869,205 reconciles with the corpus exactly.
+> The earlier median of 339 and "2 zero-news sessions" were artifacts of the
+> mismatch. The yearly stability table below always used the correct mapping, so
+> the D4 freeze is unaffected.
 
 The 91 unassignable are dated 2019-12-31 and defer to 2020-01-02, outside the
 calendar — correctly dropped rather than clipped onto the last session.
 
-Two zero-news sessions in ten years means the D9 exclusion is nearly inert here,
-and `d_t` is defined on essentially the whole sample.
+The single zero-news session is **2010-01-04, the first session of the window**,
+and it is a *boundary exclusion rather than an absence of news*: under the
+deferred rule a session's window opens at the previous session, which lies
+outside the calendar, so the first session structurally cannot receive a
+headline. There is **no session in ten years with a genuine news outage**. The
+D9 zero-news exclusion is therefore inert on this corpus, and `d_t` is defined
+on essentially the whole sample.
 
 ### 3. Company concentration — well spread
 
