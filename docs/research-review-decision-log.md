@@ -2,7 +2,17 @@
 
 Recorded: 2026-09-09.
 
-Last updated: 2026-09-09, after B12-B14. B22 blocked on the environment.
+Last updated: 2026-09-09, after audit repair R01a. B22 remains blocked on the environment; further cache repairs precede scoring.
+
+## Audit repair checkpoint — R01a
+
+**Authorization:** user requested, "please follow the plan now to make some changes". Started the concrete first increment in the [audit implementation plan](audit-implementation-plan-2026-09-09.md).
+
+**Implementation:** `src/scoring.py` canonicalizes fingerprints through JSON before comparing, records the revision passed to the FinBERT constructor, rejects populated cache columns without a nonempty recorded identity, and requires an identity before a scorer can write scores. Missing provenance is checked before default scorer construction. Restore original metadata or rebuild to a new cache path; unknown values are never assigned the current scorer's identity.
+
+**Verification:** regression cases reproduced the old failures before repair. Added 13 cases in `tests/test_scoring.py`; full suite **133 passed, 7 skipped** (PyTorch DLL blocked). Constructor tests use fake imports and exercise revision forwarding without downloads. Existing identity-change and checkpoint tests continue to pass. Diff whitespace check passed.
+
+**Remaining:** default-path comparison with current artifacts, input-content identity and subset invalidation are R01b; checkpoint data/metadata transaction safety is R01c/R01d. Earlier statements that B13/B14 were complete must be read with these reopened audit findings. No empirical analysis, corpus changes, or Git writes. Stop at this reviewable increment.
 
 Purpose: preserve the previous project structure, all changes proposed in the research review, the reasons for those proposals, and the decisions actually made. The project is intended to demonstrate mathematical and statistical understanding in a data science master's application portfolio.
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -92,6 +93,10 @@ def test_score_all_caches_and_never_rescores(tmp_path, lm):
         def __init__(self, inner):
             self.inner = inner
             self.calls = 0
+
+        @property
+        def fingerprint(self):
+            return self.inner.fingerprint
 
         def score(self, texts):
             self.calls += len(texts)
@@ -382,3 +387,86 @@ def test_real_scorers_expose_a_fingerprint(lm):
     # The hash follows the actual word lists, not just the recorded version.
     other = scoring.LMScorer.from_word_lists({"gain"}, {"loss"})
     assert other.fingerprint["wordlist_sha1"] != fp["wordlist_sha1"]
+
+
+def test_finbert_fingerprint_round_trip_reuses_scores(tmp_path):
+    cache = tmp_path / "scores.parquet"
+    fp = {"scorer": "finbert", "revision": "pinned-revision",
+          "id2label": {0: "positive", 1: "negative", 2: "neutral"}}
+    scoring.score_all(_headlines(3), cache,
+                      [_StubScorer(name="finbert", fingerprint=fp)], verbose=False)
+    again = _StubScorer(name="finbert", fingerprint=fp)
+    scoring.score_all(_headlines(3), cache, [again], verbose=False)
+    assert again.scored == 0
+    changed = _StubScorer(name="finbert", fingerprint={**fp, "revision": "other"})
+    with pytest.raises(scoring.IncompatibleCache, match="different measurement"):
+        scoring.score_all(_headlines(3), cache, [changed], verbose=False)
+
+
+@pytest.mark.parametrize("revision", ["explicit-revision", None])
+def test_finbert_fingerprint_records_constructor_revision(monkeypatch, revision):
+    calls = []
+    model = SimpleNamespace(
+        config=SimpleNamespace(_name_or_path="fake-finbert",
+                               id2label=dict(config.FINBERT_ID2LABEL)),
+        eval=lambda: None, to=lambda device: None,
+    )
+
+    def load_model(name, **kwargs):
+        calls.append(kwargs)
+        return model
+
+    def load_tokenizer(name, **kwargs):
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(
+        AutoModelForSequenceClassification=SimpleNamespace(from_pretrained=load_model),
+        AutoTokenizer=SimpleNamespace(from_pretrained=load_tokenizer),
+    ))
+    scorer = scoring.FinbertScorer("fake-finbert", revision=revision, device="cpu")
+    monkeypatch.setattr(config, "FINBERT_REVISION", "unrelated-config-change")
+    assert scorer.fingerprint["revision"] == revision
+    assert calls == [{"revision": revision} if revision else {}] * 2
+
+
+@pytest.mark.parametrize("metadata", [None, {}, {"fingerprints": {"lm": None}},
+                                      {"fingerprints": {"lm": {}}}])
+@pytest.mark.parametrize("explicit_scorer", [False, True])
+def test_populated_cache_without_identity_is_rejected(
+    tmp_path, monkeypatch, metadata, explicit_scorer
+):
+    def no_model_loading(names):
+        pytest.fail("unknown cache provenance must be rejected before loading models")
+
+    monkeypatch.setattr(scoring, "build_scorers", no_model_loading)
+    cache = tmp_path / "scores.parquet"
+    pd.DataFrame({"headline_id": ["h00000"], "score_lm": [0.8]}).to_parquet(cache)
+    if metadata is not None:
+        scoring.meta_path(cache).write_text(json.dumps(metadata), encoding="utf-8")
+    before = cache.read_bytes()
+    scorer = _StubScorer(value=-0.8)
+    with pytest.raises(scoring.IncompatibleCache, match="missing.*fingerprint"):
+        scoring.score_all(_headlines(1), cache,
+                          [scorer] if explicit_scorer else None, verbose=False)
+    assert scorer.scored == 0
+    assert cache.read_bytes() == before
+
+
+def test_empty_score_column_needs_no_previous_identity(tmp_path):
+    cache = tmp_path / "scores.parquet"
+    pd.DataFrame({"headline_id": ["h00000"], "score_lm": [np.nan]}).to_parquet(cache)
+    scorer = _StubScorer()
+    scoring.score_all(_headlines(1), cache, [scorer], verbose=False)
+    assert scorer.scored == 1
+
+
+def test_scorer_without_identity_cannot_create_cache(tmp_path):
+    cache = tmp_path / "scores.parquet"
+    scorer = _StubScorer()
+    scorer._fp = None
+    with pytest.raises(ValueError, match="fingerprint"):
+        scoring.score_all(_headlines(1), cache, [scorer], verbose=False)
+    assert scorer.scored == 0
+    assert not cache.exists()

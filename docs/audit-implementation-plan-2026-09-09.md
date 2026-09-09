@@ -1,6 +1,14 @@
 # Audit implementation proposal — 2026-09-09
 
-Based on the [project audit](project-audit-2026-09-09.md). This proposes a repair sequence within the existing B01–B28 roadmap; it does not replace that roadmap or authorize execution. The current request is audit/planning only.
+Based on the [project audit](project-audit-2026-09-09.md). This repair sequence sits within the existing B01–B28 roadmap. Initially prepared for review; the user subsequently requested execution in bounded increments.
+
+## Execution checkpoint — 2026-09-09
+
+**R01a completed and fixture-tested.** Fingerprints now use their JSON representation for comparison; FinBERT records the constructor's revision rather than rereading global config; populated cache columns with missing/null/empty identities are rejected before scorer construction. New scorers must supply a nonempty JSON-compatible identity. Unknown-provenance caches require original metadata or a rebuild into a new cache path; they are not relabelled by the rescore option.
+
+Verification: 13 new test cases; scorer suite **34 passed, 7 skipped**; full suite **133 passed, 7 skipped**. The seven skips remain the Windows PyTorch DLL block. Revision tests use mocked model/tokenizer loaders and run without PyTorch. `git diff --check` passed. No corpus scoring, environment changes or Git writes.
+
+**Next: R01b.** Comparing populated columns against current artifacts on the default path, input-content identity, and safe subset invalidation remain outstanding. Two-file checkpoint consistency remains R01c/R01d. R01a does not close the full cache audit finding.
 
 **Recommendation:** start with cache identity repair, not B22's scoring pilot. Meanwhile, the annotation-preparation and inference-fixture work can proceed independently of the PyTorch blocker once their own contracts are settled. Human labels and working model inference are dependencies for results, not reasons to postpone all code work.
 

@@ -25,6 +25,10 @@ class Scorer(Protocol):
 
     name: str
 
+    @property
+    def fingerprint(self) -> dict:
+        """Nonempty JSON-compatible identity required for cached scoring."""
+
     def score(self, texts: Sequence[str]) -> np.ndarray:
         """Shape (n,), values in [-1, 1]."""
 
@@ -168,6 +172,7 @@ class FinbertScorer:
         self._torch = torch
         self.batch_size = batch_size
         self.max_length = max_length
+        self.revision = revision
         kw = {"revision": revision} if revision else {}
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, **kw)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name, **kw)
@@ -202,7 +207,7 @@ class FinbertScorer:
         return {
             "scorer": "finbert",
             "model": self.model.config._name_or_path,
-            "revision": config.FINBERT_REVISION,
+            "revision": self.revision,
             "max_length": self.max_length,
             "id2label": {int(k): v.lower() for k, v in self.model.config.id2label.items()},
         }
@@ -280,8 +285,24 @@ def _atomic_write_parquet(df: pd.DataFrame, path: Path) -> None:
             os.unlink(tmp)
 
 
+def _canonical_fingerprint(fingerprint: dict) -> dict:
+    """Compare the representation actually persisted in JSON (R01a).
+
+    JSON turns integer object keys into strings and tuples into lists. Apply
+    that conversion before comparison as well as writing, without a lossy
+    default=str fallback for unsupported objects.
+    """
+    if not isinstance(fingerprint, dict) or not fingerprint:
+        raise ValueError("fingerprint must be a nonempty JSON-compatible dictionary")
+    return json.loads(json.dumps(fingerprint, allow_nan=False))
+
+
 def load_cache(cache_path: str | Path) -> tuple[pd.DataFrame, dict]:
-    """Cached scores and the fingerprints that produced them."""
+    """Cached scores and their recorded identities; refuse unknown provenance.
+
+    This checks identity presence even on the default completed-cache path.
+    Comparing those identities to current artifacts is separate (R01b).
+    """
     cache_path = Path(cache_path)
     cols = [f"score_{n}" for n in config.SCORERS]
     if cache_path.exists():
@@ -294,6 +315,19 @@ def load_cache(cache_path: str | Path) -> tuple[pd.DataFrame, dict]:
 
     mp = meta_path(cache_path)
     meta = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else {}
+    if not isinstance(meta, dict) or not isinstance(meta.get("fingerprints", {}), dict):
+        raise IncompatibleCache(f"invalid fingerprint metadata in {mp}")
+    fingerprints = meta.get("fingerprints", {})
+    for name in config.SCORERS:
+        populated = int(cache[f"score_{name}"].notna().sum())
+        recorded = fingerprints.get(name)
+        if populated and (not isinstance(recorded, dict) or not recorded):
+            raise IncompatibleCache(
+                f"cached {name!r} has {populated:,} values with a missing or invalid "
+                f"fingerprint in {mp}. Their provenance cannot be inferred. "
+                "Restore the original metadata or rebuild into a new cache path; "
+                "on_fingerprint_change='rescore' cannot establish unknown provenance."
+            )
     return cache, meta
 
 
@@ -318,7 +352,8 @@ def score_all(
     produced by a *different measurement*, and reusing it would silently mix two
     definitions inside one column. That raises `IncompatibleCache` by default;
     `on_fingerprint_change="rescore"` discards the stale column and recomputes
-    it. There is no option to reuse it silently.
+    it. Populated columns without recorded identity are refused at load time;
+    rebuild into a new cache path rather than inventing their provenance.
 
     **Resumption (B14).** Scoring proceeds in batches of `checkpoint_every` rows
     and the cache is written atomically after each. An interrupted pass resumes
@@ -339,8 +374,10 @@ def score_all(
 
     for scorer in scorers:
         name, col = scorer.name, f"score_{scorer.name}"
-        current = getattr(scorer, "fingerprint", None)
+        current = _canonical_fingerprint(getattr(scorer, "fingerprint", None))
         stored = fingerprints.get(name)
+        if stored is not None:
+            stored = _canonical_fingerprint(stored)
 
         if stored is not None and current is not None and stored != current:
             already = int(out[col].notna().sum())
@@ -406,7 +443,7 @@ def _checkpoint(out, cols, cache, cache_path: Path, fingerprints: dict) -> None:
     meta_path(cache_path).write_text(
         json.dumps(
             {"fingerprints": fingerprints, "n_rows": int(len(merged))},
-            indent=2, sort_keys=True, default=str,
+            indent=2, sort_keys=True, allow_nan=False,
         ),
         encoding="utf-8",
     )
