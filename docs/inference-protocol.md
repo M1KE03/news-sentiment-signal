@@ -1,6 +1,6 @@
 # Inference protocol (Act 2)
 
-Date: 2026-09-09. Increment: **B02**.
+Date: 2026-09-09. Increment: **B02**. Amended 2026-09-09 (**R05**, audit finding A10) — see §14.
 
 Status: **specification**. No model has been fitted and no result has been seen. Everything here is fixed before estimation. Items whose resolution genuinely requires the data are listed in §12 as feasibility checks with a stated decision rule, rather than silently assumed.
 
@@ -76,9 +76,20 @@ Justification, and its limits. The one-day horizon is non-overlapping, so the le
 
 **Diagnostics, reported, not acted upon:** residual autocorrelation function to lag 20, and the regressor's own ACF. These describe whether `L = 5` was a reasonable prespecification. They do not license re-choosing `L` after the fact.
 
+**Open item — what `L = 5` counts (A09; deliberately left open 2026-09-09, M7).** The current implementation resets the index before computing HAC, so lag `ℓ` means `ℓ` **retained observations**, which can span more than `ℓ` calendar sessions wherever the analysis sample has gaps. The installed statsmodels `cov_hac_simple` documents an assumption of consecutive, equally spaced periods. Two conventions are available:
+
+| Convention | Lag `ℓ` means | Status |
+|---|---|---|
+| Retained-position | `ℓ` rows of the analysis sample | What the code does today |
+| Session-indexed | `ℓ` exchange sessions; pairs further apart in session time get zero weight even when within `ℓ` rows | Candidate |
+
+**This choice is not made here.** It was proposed for prespecification and the user's decision was to **defer it to R07c**, which will measure the difference between the two conventions on synthetic gapped data and on the real analysis sample. Both conventions will be computed and both reported; the deferral is recorded in the [decision log](research-review-decision-log.md) with its date and reason.
+
+The exposure this deferral carries is stated plainly, because it is the kind of thing that is indefensible if discovered later: **the convention will be selected after its effect on the sample has been measured.** Two constraints bound that. The selection happens in R07c, which is infrastructure work that must complete **before** any tone coefficient is estimated, so no sentiment–return result can inform it. And whichever convention becomes primary, the other is reported alongside as a sensitivity, so the choice cannot hide a divergence. This corpus has one zero-news session (§3), so the two are expected to be close; if R07c finds otherwise, that itself is the finding and is reported as one.
+
 **Intervals are pointwise.** Every reported 95% interval is a pointwise interval for a single coefficient and is labelled with that word. A BH-adjusted p-value elsewhere in the report does not convert any interval into a simultaneous one (P10). If a joint statement across several horizons is ever required, it uses sup-t simultaneous bands simulated from the HAC covariance of the coefficient vector, and says so explicitly.
 
-## 5. Effect scale, the smallest effect of interest, and the three permitted conclusions
+## 5. Effect scale, the smallest effect of interest, and the permitted conclusions
 
 **Scale.** Because the regressor is standardized, `beta` is already "log return per 1 standard deviation of tone". Reported as basis points:
 
@@ -93,23 +104,46 @@ The interval is transformed identically to the point estimate.
 
 Rationale, and its boundaries. 5 bps is the order of magnitude commonly quoted for one-way execution cost in a large liquid ETF. It is used here **as a yardstick for what counts as small** — a daily conditional association below this is small relative to frictions any user of it would face. It is **not** a profitability threshold. A coefficient above 5 bps does not establish that a strategy makes money, and one below it does not establish that the information is useless: realised economic value depends on signal use, timing, turnover, holding period and capacity, none of which this design measures (P19).
 
-**The three conclusions, and the rule that picks between them** (P18). Let `CI` be the pointwise 95% interval in bps.
+**The permitted conclusions** (P18; amended 2026-09-09, M2). Let `CI` be the pointwise 95% interval in bps.
 
-| Conclusion | Condition |
-|---|---|
-| **Evidence of association** | `0` is outside `CI` |
-| **Evidence the effect is small** | `CI` lies entirely inside `(−5, +5)` bps |
-| **Inconclusive** | `0` is inside `CI` **and** `CI` extends beyond `±5` bps |
-
-An interval crossing zero is not by itself evidence of absence. If the third row obtains, the report says the study could not distinguish a null from an economically meaningful effect, and gives the interval. That is a legitimate outcome and is written as one.
-
-**Precision is assessed before `beta` is looked at.** Once the analysis sample exists but before the sentiment coefficient is examined, compute the anticipated half-width from the return residual scale and sample size:
+The original three categories **overlapped and are withdrawn** (A10): an interval of `[1, 3]` bps satisfied both "evidence of association" and "evidence the effect is small", and no rule chose between them. They are replaced by **two independent binary facts, both always reported**, and a naming rule over the four combinations.
 
 ```text
-half-width ≈ 1.96 * sd(r) / sqrt(n)      (bps, standardized regressor, ignoring controls and dependence)
+A  — association evidence:   is 0 outside CI ?
+B  — practical smallness:    is CI contained in [−5, +5] bps ?
 ```
 
-If that half-width already exceeds the 5 bps SESOI, the study **cannot** deliver the "effect is small" conclusion no matter what is estimated. That fact is recorded at that point, in advance, so a wide interval is reported as a known precision limit rather than discovered afterwards and framed as a finding.
+| | **B: inside ±5 bps** | **B: not inside ±5 bps** |
+|---|---|---|
+| **A: excludes 0** | Association detected, and small against the 5 bps yardstick | Association detected; magnitude not established as small |
+| **A: includes 0** | No association detected, and precise enough to exclude effects beyond ±5 bps — an informative null | **Inconclusive** |
+
+`A` and `B` answer different questions and neither substitutes for the other, which is why both are printed for every reported interval rather than collapsed into one label. An interval crossing zero is not by itself evidence of absence: that statement requires `B` as well, which is exactly the bottom-left cell. If the bottom-right cell obtains, the report says the study could not distinguish a null from an economically meaningful effect, and gives the interval. That is a legitimate outcome and is written as one.
+
+**Boundary rule.** Both comparisons are **non-strict** (`0 ∈ CI` and `CI ⊆ [−5, +5]` use closed bounds) and are evaluated on the interval endpoints **rounded to 0.1 bps**, which is the reporting precision. Any endpoint landing within 0.1 bps of `0` or of `±5` is flagged as a **boundary case**: the unrounded endpoint is printed to four decimal places beside the classification, and the report states that the label turns on a difference smaller than the reporting precision. A boundary case is disclosed, never silently resolved in either direction.
+
+**Precision is assessed before `beta` is looked at** (amended 2026-09-09, M1). Once the analysis sample exists but before the sentiment coefficient is examined, compute and record **two anticipated half-widths**. Both are planning quantities. Neither is a bound.
+
+*Estimate 1 — crude, from the outcome scale alone:*
+
+```text
+h1 ≈ 1.96 * sd(r) / sqrt(n) * 10,000      (bps; standardized regressor; ignores controls, collinearity and dependence)
+```
+
+*Estimate 2 — sharper, and still blind to `beta`:*
+
+```text
+fit  r_(t+1) = a + g' X_t + u        (controls only; tone EXCLUDED)
+fit  z(S_t)  = c + d' X_t + v        (tone on controls; the outcome is not involved)
+
+h2 ≈ 1.96 * [ sd(u) / (sqrt(n) * sd(v)) ] * kappa * 10,000
+```
+
+where `sd(v) = sqrt(1 - R²)` from the second fit, and `kappa` is the HAC-to-OLS standard-error ratio at `L = 5` computed from the controls-only residuals `u`. Estimate 2 uses tone and it uses the outcome, but **never together**: no fit above involves `cov(z(S_t), r_(t+1))`, so the primary coefficient remains unseen. This is what makes the check legitimate rather than a first look at the answer.
+
+**What these numbers do and do not license.** They are recorded in the run manifest, with `n`, `sd(r)`, `R²`, `kappa` and the date, before any tone coefficient is estimated. The earlier claim — that a half-width above 5 bps means the study *cannot* deliver the "effect is small" conclusion "no matter what is estimated" — was **wrong in both directions and is withdrawn** (A10). Conditioning on `X_t` can reduce residual variance and narrow the realised interval below `h1`; collinearity between tone and the controls (`R²` above) widens it; and residual dependence at `L = 5` moves it either way. The realised HAC interval from §4 is the only quantity the conclusion rule below consults.
+
+What the advance record buys is honesty about sequence: if the interval turns out wide, the report can show that the width was anticipated and written down beforehand, rather than discovered afterwards and reframed as a finding.
 
 ## 6. Testing families
 
@@ -118,6 +152,8 @@ Family membership is fixed here. Nothing moves between families after results ar
 **Primary — one test.** FinBERT, `h = 1`. No multiplicity correction.
 
 **Secondary return family — 14 tests.** All remaining (scorer, horizon) pairs: `{finbert, lm, vader} × {1..5}` minus the primary. Correction: **Benjamini–Hochberg at `q = 0.05`** across all 14.
+
+**This family contains return tests only, and its membership is closed** (amended 2026-09-09, M3). It is exactly the 14 (scorer, horizon) pairs enumerated above. No classification-quality test may join it — the Act 1 contrasts are a different estimand on a different sample with a different unit of resampling, and [validation protocol](validation-protocol.md) §7 previously delegated their multiplicity treatment here, to a family that never contained them (A10). That delegation is removed; Act 1's contrasts are specified in that document and are not corrected against these.
 
 BH's guarantee holds under independence and under positive regression dependence. These tests share regressors and outcomes and are positively correlated by construction, which makes PRDS plausible but not established (P09). So **Benjamini–Yekutieli is reported alongside** as a sensitivity: it is valid under arbitrary dependence at the cost of power. Where BH and BY disagree, both are shown and the claim is made at the BY level.
 
@@ -178,13 +214,27 @@ Concretely: if `delta` from §7(a) is positive, that is *consistent with* attenu
 
 Demoted from "placebo test" to what it can actually support (P08).
 
-**Procedure.** Circular **shift** of the standardized tone series by `k` sessions, with outcomes and all controls left in place, refitting the primary specification for every `k` in `1 .. n−1`:
+**Procedure.** Circular **shift** of the standardized tone series by `k` positions, with outcomes and all controls left in place, refitting the primary specification for every `k` in `1 .. n−1`:
 
 ```text
 z(S)_shifted[i] = z(S)[(i + k) mod n]
 ```
 
-**Output.** The distribution of the shifted coefficient across `k`, and the rank of the observed `k = 0` value within it, reported as a percentile.
+**The shift domain** (amended 2026-09-09, M6). The vector shifted is the standardized tone of the **`n` retained rows of the analysis sample, in session order, after eligibility has been applied** — not the full exchange calendar. `n` is therefore the analysis sample size, identical for every `k`, and each `k` is a bijection on those rows.
+
+The consequence must be stated wherever the diagnostic is reported: **when the retained rows have gaps, a shift of `k` positions is not a shift of `k` calendar sessions.** The number of gaps in the retained series, and the largest gap in sessions, are reported beside the percentile so the reader can judge how far position-distance departs from session-distance on this sample.
+
+The alternative — shifting on the full calendar and re-applying eligibility afterwards — was considered and **rejected**: it changes `n` with `k`, so the coefficients across `k` are no longer computed on a common sample and the shift is no longer a bijection. Rejecting it costs the exact calendar interpretation and keeps comparability; that trade is made here, in advance, and recorded.
+
+**Output.** The distribution of the shifted coefficient across the `n−1` values of `k`, and the rank of the observed `k = 0` value within it, reported as a percentile.
+
+**Tie handling.** The percentile rank uses the **midrank** convention over the reference distribution plus the observed value:
+
+```text
+percentile = ( #{k : beta_k < beta_0} + 0.5 * #{k : beta_k == beta_0} ) / n
+```
+
+with `k` ranging over `1 .. n−1`, so the denominator `n` counts the `n−1` shifted fits plus the observed one. Equality is evaluated at the reporting precision of the coefficient, and the **number of exact ties is reported**. On continuous data ties are expected to be zero; a nonzero count is a signal that something is degenerate in the fit and is surfaced rather than absorbed by the convention.
 
 **Why a full circular shift and not block resampling.** A circular shift is a bijection: every observation appears exactly once, and the tone series' entire autocorrelation structure is preserved exactly. Drawing blocks with replacement — what the current `src/inference.py` does — duplicates some observations and omits others, so it is not a permutation, and the `+1` correction on its p-value does not repair a null distribution built the wrong way (B19 fixes this).
 
@@ -216,6 +266,10 @@ Enforced when the panel contract is revised at B16. Names must match formulas (P
 - Reading `d_t` as investor disagreement.
 - Treating a weak same-day association as proof of a pipeline defect.
 - Changing the control set, sample rules, families, bandwidth, or SESOI after seeing a coefficient, without a dated log entry recording what had been seen.
+- Presenting either anticipated half-width in §5 as a bound on the realised interval, or citing it to declare a conclusion unreachable in advance (M1).
+- Reporting one of §5's two dimensions without the other, or resolving a flagged boundary case silently in either direction (M2).
+- Describing the timing diagnostic's shift `k` as `k` calendar sessions when the analysis sample has gaps (M6).
+- Admitting any classification-quality test into the 14-test secondary return family (M3).
 
 ## 12. Feasibility checks that depend on the data
 
@@ -242,5 +296,24 @@ Identified in advance, each with the decision it drives. None is assumed to pass
 | Primary regression implementation and its fixture tests | B17 |
 | Secondary family correction and the stacked `delta` comparison | B18 |
 | Timing-diagnostic reimplementation | B19 |
-| Standardized effects, precision report, three-conclusion logic | B20 |
+| Standardized effects, precision report, conclusion logic | B20 / R07d |
 | Attenuation derivation and simulation | B21 |
+| **HAC lag spacing: retained-position vs session-indexed (§4, M7)** | **R07c — deferred by decision 2026-09-09** |
+
+---
+
+## 14. Amendment record
+
+This document is a frozen specification, so every change to it is listed here with its date, its reason and what it replaced. Amendments correct defects in the specification; they do not change the research question, the frozen control set, the window, or the 5 bps yardstick, none of which has been touched.
+
+**2026-09-09 — R05, from [project audit](project-audit-2026-09-09.md) A10 and A09.** No results existed at the time of amendment: no text had been scored, no panel built and no coefficient estimated. That is the reason these corrections are legitimate rather than post hoc, and it is why they were made now instead of during analysis.
+
+| ID | § | Change | Replaced |
+|---|---|---|---|
+| M1 | 5 | Two anticipated half-widths, recorded in advance, both explicitly planning quantities; the second uses tone and the outcome but never jointly, so `beta` stays unseen | The claim that a wide `1.96·sd(r)/√n` means the study "**cannot**" deliver the smallness conclusion "no matter what is estimated" — false in both directions |
+| M2 | 5 | Two independent reported facts (`A` association, `B` smallness), a 2×2 naming rule, and an explicit non-strict boundary rule at 0.1 bps reporting precision | Three conclusion categories that overlapped: `[1, 3]` bps satisfied two of them with no rule to choose |
+| M3 | 6 | The 14-test secondary family is closed and contains return tests only; Act 1 contrasts cannot join it | An implicit delegation from the validation protocol of classifier contrasts into a family that never enumerated them |
+| M6 | 9 | Shift domain fixed to the retained analysis rows in session order; the position-vs-session distinction stated; the calendar alternative recorded as considered and rejected; midrank ties with a reported tie count | An unspecified domain and no tie convention |
+| M7 | 4 | **Deferred, not decided.** Both HAC spacing conventions documented; selection and measurement moved to R07c, with the deferral's exposure stated | Silence about what lag `ℓ` counts when the sample has gaps |
+
+M4 and M5 amend the [validation protocol](validation-protocol.md) and are recorded there.

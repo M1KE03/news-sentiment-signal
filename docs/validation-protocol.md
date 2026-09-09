@@ -1,6 +1,6 @@
 # Validation protocol (Act 1)
 
-Date: 2026-09-09. Increment: **B01**.
+Date: 2026-09-09. Increment: **B01**. Amended 2026-09-09 (**R05**, audit finding A10) — see §12.
 
 Status: **specification**. No labels have been collected and no evaluation has been run. This document defines the procedure to be executed at B11 (sample preparation), B15 (paired uncertainty implementation) and B24 (results). Source-specific details that depend on the news collection are marked **[B03/B04]** and are resolved by the data audit, not here.
 
@@ -29,12 +29,18 @@ Secondary, each labelled as such: `macroF1(FinBERT) - macroF1(VADER)`, `macroF1(
 
 The primary evaluation set is a sample of headlines from the selected news collection, labelled by humans who cannot see any model's output.
 
-This is preferred over any public benchmark for two reasons. It has verifiable independence from the checkpoints, and it measures classification quality on the exact text distribution that Act 2 aggregates — headline register, length, and subject mix — rather than on a different corpus.
+This is preferred over any public benchmark for two reasons, **stated precisely** (amended 2026-09-09, M5). It has verifiable **label** independence, and it measures classification quality on the exact text distribution that Act 2 aggregates — headline register, length, and subject mix — rather than on a different corpus.
+
+**What "independence" does and does not mean here.** The earlier wording claimed "verifiable independence from the checkpoints", which overclaims and is withdrawn (A10). What new human annotation establishes is that **the labels** were produced by people, after the models were trained, and therefore cannot have been in any model's training data. That is the property the comparison needs, and it is genuinely verifiable from the annotation provenance in §6.
+
+What it does **not** establish is that the **headline text** was unseen. These are historical headlines from 2010–2019, published on the open web, and no scorer's pretraining corpus is auditable at that granularity. Prior exposure to the text cannot be excluded for any of the three scorers, FinBERT included. This is recorded as a limitation of Act 1 as a whole, applying symmetrically, and is stated in the results section rather than only in the limitations — it bounds how far any of these numbers generalize to genuinely unseen text.
+
+The two are different claims and the report keeps them apart: **labels are independent; text exposure is unknown.**
 
 **Fallback, in order.** If independent annotation cannot be obtained:
 
 1. An external benchmark for which independence from the exact checkpoint's training data can be **established from documentation**, not assumed. Record the evidence.
-2. PhraseBank, retained only as a **supplementary** exhibit carrying an explicit contamination statement, with the FinBERT number described as an upper bound of unknown tightness rather than as a measurement of generalization.
+2. PhraseBank, retained only as a **supplementary** exhibit carrying an explicit contamination statement, with the FinBERT number described as **an optimistically biased estimate with no guarantee that it bounds generalization**, rather than as a measurement of generalization. (Amended 2026-09-09, M5: the earlier phrase "upper bound of unknown tightness" is withdrawn. `ProsusAI/finbert`'s own model card names PhraseBank as fine-tuning data, so the score is expected to be optimistic — but contamination does not make a number a mathematical bound on anything, and a contaminated score can in principle sit below a model's performance on other text.)
 
 Falling back is a reportable limitation, not a silent substitution. If Act 1 rests on option 2, the report says so in the results section, not only in the limitations.
 
@@ -180,9 +186,27 @@ Three properties of that procedure are the point of it:
 
 Report the interval, the point estimate, and B. If the interval contains zero, that is the result; it is not a reason to look for a subset where it does not.
 
-**Accuracy comparison — exact McNemar**, on the paired correctness table, reported separately and labelled *"paired accuracy comparison"*. The b and c disagreement cells are reported with the p-value, since the p-value alone hides how much the two classifiers actually differ.
+**Accuracy comparison** (amended 2026-09-09, M4). Accuracy is compared two ways, and the **primary** of the two is the one whose assumptions this design actually satisfies.
 
-**Secondary contrasts** (FinBERT−VADER, LM−VADER) use the identical bootstrap and are labelled secondary. They belong to the secondary family defined in the inference protocol (B02); their multiplicity treatment is specified there, not improvised here.
+*Primary — paired group bootstrap on the accuracy difference.* Identical machinery to the macro-F1 interval above: resample evaluation **article groups** with replacement, `B = 10,000`, `seed = 20260830`, recompute both scorers' accuracy on the same resampled items, and report the 2.5th and 97.5th percentiles of `accuracy(FinBERT)_b − accuracy(LM)_b`. This respects group dependence for the same reason the macro-F1 interval does, and it needs no new theory.
+
+*Supplementary — exact McNemar*, on the paired correctness table, labelled *"paired accuracy comparison"*. The `b` and `c` disagreement cells are reported with the p-value, since the p-value alone hides how much the two classifiers actually differ.
+
+**Why McNemar is supplementary and not primary.** Exact McNemar treats the discordant pairs as independent Bernoulli trials. §4 assigns whole **article groups** to a part precisely because near-duplicate headlines are not independent, so a group contributing several evaluation items violates that assumption in the direction that matters: the p-value is too small. Pairing across scorers is not the issue — that part McNemar handles correctly — the issue is dependence *within* the item set. The earlier text presented McNemar without this qualification (A10).
+
+Three things are therefore reported beside it: **the number of evaluation article groups**, **the group-size distribution** (how many groups contribute 1, 2, 3+ evaluation items), and the explicit statement that **the McNemar p-value is valid only under item independence, which this design does not assert**. If the realised evaluation set turns out to contain one item per group, that fact is reported and McNemar's assumption is satisfied — but that is an outcome to be checked, not assumed in advance.
+
+**Secondary contrasts** (FinBERT−VADER, LM−VADER) use the identical bootstrap and are labelled secondary.
+
+**Their multiplicity treatment is specified here** (amended 2026-09-09, M3). The earlier text delegated it to "the secondary family defined in the inference protocol (B02)" — but that family enumerates exactly 14 (scorer, horizon) **return** tests and never contained a classification contrast (A10). The delegation pointed at nothing, and [inference protocol](inference-protocol.md) §6 now closes that family explicitly.
+
+The treatment: the two secondary contrasts are reported as **pointwise paired-bootstrap intervals, labelled descriptive-secondary, with no p-value and no multiplicity correction.** Three reasons, fixed here before any label exists:
+
+- There are exactly **two** of them, and both are deterministic functions of the same three macro-F1 values as the primary contrast. They are near-collinear with it and with each other; a correction across two such quantities adjusts almost nothing while implying a family structure the design does not have.
+- The estimand of Act 1 is a **difference with an interval**, not a decision at a level. Nothing here is thresholded, so there is no error rate to control.
+- Act 1 and Act 2 are different estimands on different samples with different resampling units. Pooling them into one correction family would be a category error in either direction.
+
+What this forbids: no significance claim is made for either secondary contrast, and neither may be promoted to a headline result after inspection. If a future increment wants a *tested* classification family, it must define one — membership, level and correction — before the labels are seen, and record it here.
 
 ## 8. Pilot before the full annotation
 
@@ -222,5 +246,23 @@ Only under §2's fallback, and then:
 | Named annotator(s), and whether a second is available | B11 |
 | Final evaluation size, after the §8 pilot measures `p_d` and throughput | B11 |
 | FinBERT class-probability interface | B12 |
-| Implementation of the paired bootstrap and group-aware resampling | B15 |
+| Implementation of the paired bootstrap and group-aware resampling | B15 / R06b |
+| Implementation of the group-aware accuracy comparison (§7, M4) | R06b |
 | Whether the PhraseBank fallback is needed at all | B10, B24 |
+| Realised group-size distribution of the evaluation set, and whether McNemar's independence assumption holds on it | R06a, reported at B24 |
+
+---
+
+## 12. Amendment record
+
+This document is a frozen specification, so every change to it is listed here with its date, its reason and what it replaced. Amendments correct defects in the specification; the estimand, the primary contrast, the sampling design, the calibration/evaluation separation and the rubric are untouched.
+
+**2026-09-09 — R05, from [project audit](project-audit-2026-09-09.md) A10.** No labels had been collected and no evaluation had been run at the time of amendment. That is why these corrections are legitimate rather than post hoc.
+
+| ID | § | Change | Replaced |
+|---|---|---|---|
+| M3 | 7 | The two secondary contrasts are specified here as descriptive pointwise intervals with no correction, with the reasoning fixed in advance | A delegation to "the secondary family defined in the inference protocol", which enumerates 14 return tests and never contained a classifier contrast |
+| M4 | 7 | Paired **group** bootstrap on the accuracy difference becomes primary; exact McNemar demoted to supplementary, with group counts, group-size distribution and an explicit validity condition printed beside it | Exact item-level McNemar presented without noting that §4's own grouping rule contradicts its independence assumption |
+| M5 | 2 | Independence narrowed to **label** independence, with text exposure recorded as unknown for all three scorers symmetrically; PhraseBank's number described as optimistically biased rather than as a bound | "Verifiable independence from the checkpoints", and "an upper bound of unknown tightness" |
+
+M1, M2, M6 and the deferred M7 amend the [inference protocol](inference-protocol.md) and are recorded there.

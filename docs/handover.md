@@ -34,13 +34,13 @@ Built the repository against the original specification: `config.py`, six `src/`
 
 ### B01 — validation protocol → [`validation-protocol.md`](validation-protocol.md)
 
-The estimand is written first, and everything follows from it. Uncertainty for the macro-F1 difference is a **paired bootstrap resampling article groups**, recomputing both models on the same resampled items (B = 10,000, seed 20260830) — macro-F1 is not a mean of per-item scores, so it cannot be bootstrapped from a per-item vector, and near-duplicate headlines are not independent draws. McNemar is retained but relabelled a *paired accuracy comparison*.
+The estimand is written first, and everything follows from it. Uncertainty for the macro-F1 difference is a **paired bootstrap resampling article groups**, recomputing both models on the same resampled items (B = 10,000, seed 20260830) — macro-F1 is not a mean of per-item scores, so it cannot be bootstrapped from a per-item vector, and near-duplicate headlines are not independent draws. McNemar is retained but relabelled a *paired accuracy comparison*. **Amended at R05 (M4):** the primary accuracy comparison is now the same paired **group** bootstrap applied to the accuracy difference, and exact McNemar is supplementary — its independence assumption is contradicted by the protocol's own article-group design, so it is printed with the group-size distribution and an explicit validity condition.
 
 Primary evaluation is annotated headlines from this study's own collection, with a documented fallback order; PhraseBank is contaminated for `ProsusAI/finbert` (its own model card names PhraseBank as fine-tuning data) and is supplementary only. Calibration/evaluation separation is **by article group and stored as a file**, not recomputed from a seed. Rubric v1 has ten decision rules; a 60-item pilot precedes the full annotation.
 
 ### B02 — inference protocol → [`inference-protocol.md`](inference-protocol.md)
 
-Primary estimand and two-sided null; frozen control set; eligibility rules; HAC bandwidth `L = 5` prespecified with a sensitivity set; effect scale in bps per 1σ; **SESOI = 5 bps** with a precision check run *before* the coefficient is inspected; and three permitted conclusions including an explicit *inconclusive*.
+Primary estimand and two-sided null; frozen control set; eligibility rules; HAC bandwidth `L = 5` prespecified with a sensitivity set; effect scale in bps per 1σ; **SESOI = 5 bps** with a precision check run *before* the coefficient is inspected; and three permitted conclusions including an explicit *inconclusive*. **Amended at R05 (M1, M2):** the three conclusions overlapped — `[1, 3]` bps satisfied two of them — and are replaced by two always-reported dimensions (does the interval exclude zero; is it inside ±5 bps) with a 2×2 naming rule and a non-strict boundary rule at 0.1 bps. The precision check is now two advance planning half-widths; the earlier claim that a wide one means the study *cannot* deliver the smallness conclusion "no matter what is estimated" was false in both directions and is withdrawn.
 
 Three questions the plan had left open were settled here:
 
@@ -192,7 +192,7 @@ Streamed the whole 5.73 GB file once (13,057,514 rows, 11.5 min), storing only t
 | Measurement | Result |
 |---|---|
 | Dedup rate | **38.5%** (431,602 exact + 111,717 near) |
-| Headlines per session | mean 345, median 339 |
+| Headlines per session | mean 345.4, median **337** |
 | Zero-news sessions | **1**, structural (the window's first session); no real outage |
 | Distinct tickers | 5,707; top-10 share 2.1%; effective 1,839 names |
 | Coverage stability | no year below tolerance → **D4 frozen** |

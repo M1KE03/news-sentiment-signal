@@ -4,7 +4,53 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
-**R01d approved; R02, R03c, R04a and R04b complete (latest).**
+**R05 complete (latest). R01a–R01d, R02, R03c, R04a and R04b complete.**
+
+*R05 (A10/A09)* — six amendments to the two frozen protocols, plus one deferral, all
+made while **no text had been scored, no labels collected, no panel built and no
+coefficient estimated**. That condition is what makes them corrections rather than
+post hoc adjustment, and it is recorded in each document. The research question,
+frozen control set, window, 5 bps yardstick, sampling design and rubric are untouched.
+
+[Inference protocol](inference-protocol.md): **M1** withdraws the claim that a wide
+`1.96·sd(r)/√n` means the study "cannot" deliver the smallness conclusion "no matter
+what is estimated" — false in both directions, since controls can narrow the realised
+interval and collinearity widens it — and replaces it with two advance planning
+half-widths, the sharper of which fits `r ~ X` and `z(S) ~ X` separately so `beta`
+is never seen. **M2** replaces three conclusion categories that overlapped (a `[1, 3]`
+bps interval satisfied two, with no rule to choose) with two always-reported
+dimensions, a 2×2 naming rule that includes an informative null, and a non-strict
+boundary rule evaluated at 0.1 bps with boundary cases printed unrounded. **M3**
+closes the 14-test secondary family at return tests only. **M6** fixes the
+circular-shift domain to the retained analysis rows in session order, states that
+`k` positions is not `k` calendar sessions when gaps exist, records the calendar
+alternative as considered and rejected because it breaks the bijection, and
+specifies midrank ties with the tie count reported.
+
+[Validation protocol](validation-protocol.md): **M4** makes the paired **group**
+bootstrap on the accuracy difference primary and demotes exact McNemar to
+supplementary — §4 assigns whole article groups precisely because near-duplicates are
+not independent, which is the assumption McNemar needs — printed with the group count,
+the group-size distribution and an explicit validity condition. **M5** narrows
+"verifiable independence from the checkpoints" to **label** independence, records text
+exposure as unknown for all three scorers symmetrically, and withdraws "upper bound of
+unknown tightness" for a contaminated PhraseBank score, since contamination makes a
+number expected-optimistic but does not make it a bound.
+
+**M7 (A09) is deferred to R07c by the user's decision**, against the recommendation to
+prespecify session-indexed HAC now. §4 documents both conventions, marks the choice
+open, and states the exposure plainly: the convention will be selected after its effect
+has been measured. Two constraints bound it — R07c completes before any tone
+coefficient is estimated, and the non-primary convention is reported alongside.
+
+Verification: documentation only. No analysis code changed and no test behaviour is
+affected — **199 passed, 7 skipped** before and after. The stale census median in the
+handover (339, superseded by R03c's 337) and the decision log's missing R01a–R04b
+history rows were corrected in the same increment; the log's closing paragraph, which
+asserted both that the corpus was assembled and that "no corpus has been assembled",
+is replaced by a single status statement (A14, partial).
+
+### Previous checkpoint: R01d, R03c, R04a and R04b
 
 *R04b (A03/A15)* — `aggregate_daily` inner-joined headlines to scores and let the
 group mean skip missing values, so five headlines with one score row reported
@@ -148,12 +194,12 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | R03d — corpus verification checkpoint | Run the repaired raw-to-clean path only after membership effects are reviewable; persist manifest and lineage | Compare IDs/counts against old corpus, explain changes, revalidate coverage and record decision before replacement | R02/R03a–c; required before final annotation draw |
 | R04a — market/calendar repair | `src/data.py`, `src/align.py`, loader/panel tests: calendar before returns, inclusive end handling, explicit warmup | Missing Tuesday makes Wednesday's return undefined; no one-session target spans a gap; final session requested; warmup does not expand analysis dates | Reopen B08, prepare B16; A04 |
 | R04b — score-to-panel gate | `src/align.py`, `run_all.py`, alignment tests: unique IDs, complete finite scores, required scorer set, artifact validation | Partial values, missing rows, duplicate IDs and incompatible measurements fail before aggregation | R01, A03/A15 |
-| R05 — protocol amendments | `docs/inference-protocol.md`, `docs/validation-protocol.md`, decision log | Resolve precision approximation, overlapping conclusions/boundaries, classifier multiplicity, group accuracy uncertainty, shift domain and training-overlap wording | A09/A10; no real results required |
+| ✅ R05 — protocol amendments | `docs/inference-protocol.md`, `docs/validation-protocol.md`, decision log | **Done 2026-09-09.** M1 precision approximation, M2 overlapping conclusions and boundaries, M3 classifier multiplicity, M4 group accuracy uncertainty, M5 training-overlap wording, M6 shift domain. **M7 (HAC spacing, A09) deferred to R07c by decision** | A09/A10; no real results required |
 | R06a — blind sample preparation | Existing data/validation modules, new `tests/test_validation.py`, `data/annotation/` artifacts | Stable group IDs and stored calibration/evaluation split; no overlap; prediction-blind exports; 60-item calibration pilot identified | B11; R03/R05; no labels required to build tooling |
 | R06b — label ingestion and paired metrics | `src/validate.py`, validation tests: validate labels/provenance, fit calibration-only thresholds, paired group bootstrap | Known paired fixtures; identical predictions yield zero difference; all resamples preserve groups/pairing; unusable items counted | B15; R05/R06a; empirical use waits for human labels |
 | R07a — panel fields | Concrete B16 field mapping, then bounded rename of volume/range fields and consumers | Formulas match names; adjusted prices reach context figure; obsolete consumers fail tests | A07; agreed panel contract |
 | R07b — primary fixture | `src/inference.py`, inference tests: explicit eligibility, detrended-volume control, standardization and counts | Hand-checkable design matrix/target; identical retained rows determine fit, SD and bps scale; exclusion ledger reconciles | B17/B20; R04/R05/R07a |
-| R07c — uncertainty spacing | Specify session-indexed HAC behavior and implement after review; diagnostics keep time meaning | Contiguous case agrees with library calculation; gapped fixture agrees with independently calculated lag products | B17/B20 extension; A09 |
+| R07c — uncertainty spacing | Specify session-indexed HAC behavior and implement after review; diagnostics keep time meaning. **Also owns the deferred M7 decision**: measure retained-position vs session-indexed HAC on synthetic gapped data and on the real sample, then select the primary convention and report the other alongside | Contiguous case agrees with library calculation; gapped fixture agrees with independently calculated lag products; both conventions computed and the choice recorded with its measured difference **before any tone coefficient is estimated** | B17/B20 extension; A09; R05/M7 |
 | R07d — precision/results contract | Advance planning estimate, pointwise CI, two evidence dimensions or approved conclusion precedence | Null, small-nonzero, wide and exact-margin fixture intervals classified consistently; no profitability field | B20; R05/R07b–c |
 | R08a — return families | Assemble one primary and the exact 14-test secondary family with BH/BY | Membership/size asserted; primary excluded from adjustment; correction matches reference values | B18; R07 |
 | R08b — paired scorer effect | Implement standardized common-sample comparison with stacked HAC covariance | Identical scorers yield zero contrast; rescaling a score leaves standardized comparison unchanged; covariance checked on a controlled fixture | B18; R07 |
