@@ -470,3 +470,124 @@ def test_scorer_without_identity_cannot_create_cache(tmp_path):
         scoring.score_all(_headlines(1), cache, [scorer], verbose=False)
     assert scorer.scored == 0
     assert not cache.exists()
+
+
+def test_default_completed_cache_validates_current_identity(tmp_path, monkeypatch):
+    cache = tmp_path / "scores.parquet"
+    scorers = [_StubScorer(name=n) for n in config.SCORERS]
+    scoring.score_all(_headlines(2), cache, scorers, verbose=False)
+    identities = {s.name: s.fingerprint for s in scorers}
+    monkeypatch.setattr(scoring, "_configured_fingerprints", lambda: identities)
+    monkeypatch.setattr(scoring, "build_scorers",
+                        lambda names: pytest.fail("completed cache must not load models"))
+    scoring.score_all(_headlines(2), cache, verbose=False)
+    identities["finbert"] = {"scorer": "finbert", "version": "v2"}
+    before = cache.read_bytes()
+    with pytest.raises(scoring.IncompatibleCache, match="different measurement"):
+        scoring.score_all(_headlines(2), cache, verbose=False)
+    assert cache.read_bytes() == before
+
+
+def test_subset_rescore_invalidates_other_rows_and_resumes(tmp_path):
+    cache = tmp_path / "scores.parquet"
+    heads = _headlines(3)
+    scoring.score_all(heads, cache, [_StubScorer()], verbose=False)
+    fp = {"scorer": "lm", "version": "v2"}
+    scoring.score_all(heads.iloc[:1], cache, [_StubScorer(value=-.5, fingerprint=fp)],
+                      verbose=False, on_fingerprint_change="rescore")
+    saved, _ = scoring.load_cache(cache)
+    assert saved.loc[saved.headline_id != "h00000", "score_lm"].isna().all()
+    again = _StubScorer(value=-.5, fingerprint=fp)
+    result = scoring.score_all(heads, cache, [again], verbose=False)
+    assert again.scored == 2
+    np.testing.assert_allclose(result.score_lm, -.5)
+
+
+def test_changed_text_refuses_reuse_and_invalidates_all_scorers(tmp_path):
+    cache = tmp_path / "scores.parquet"
+    heads = _headlines(2)
+    scoring.score_all(heads, cache, [_StubScorer(name=n) for n in config.SCORERS],
+                      verbose=False)
+    heads.loc[0, "text"] = "STORY 0!"
+    before = cache.read_bytes()
+    with pytest.raises(scoring.IncompatibleCache, match="headline text"):
+        scoring.score_all(heads, cache, [_StubScorer()], verbose=False)
+    assert cache.read_bytes() == before
+    lm = _StubScorer(value=-.5)
+    result = scoring.score_all(heads, cache, [lm], verbose=False,
+                               on_fingerprint_change="rescore")
+    assert lm.scored == 1
+    assert result.loc[0, ["score_vader", "score_finbert"]].isna().all()
+    assert result.loc[1, "score_finbert"] == .5
+
+
+def test_missing_text_identity_is_not_blessed(tmp_path):
+    cache = tmp_path / "scores.parquet"
+    scoring.score_all(_headlines(2), cache, [_StubScorer()], verbose=False)
+    saved = pd.read_parquet(cache).drop(columns="text_sha256", errors="ignore")
+    saved.to_parquet(cache, index=False)
+    with pytest.raises(scoring.IncompatibleCache, match="text identity"):
+        scoring.score_all(_headlines(2), cache, [_StubScorer()], verbose=False)
+
+
+def test_all_identities_checked_before_any_checkpoint(tmp_path):
+    cache = tmp_path / "scores.parquet"
+    scoring.score_all(_headlines(2), cache,
+                      [_StubScorer(), _StubScorer(name="vader")], verbose=False)
+    before = cache.read_bytes()
+    lm = _StubScorer()
+    changed = _StubScorer(name="vader", fingerprint={"version": "v2"})
+    with pytest.raises(scoring.IncompatibleCache):
+        scoring.score_all(_headlines(3), cache, [lm, changed], verbose=False)
+    assert lm.scored == 0
+    assert cache.read_bytes() == before
+
+
+def test_configured_identity_needs_no_finbert_import(monkeypatch):
+    monkeypatch.setattr(scoring, "LMScorer", lambda: _StubScorer())
+    monkeypatch.setattr(scoring, "VaderScorer", lambda: _StubScorer(name="vader"))
+    monkeypatch.setitem(sys.modules, "torch", None)
+    monkeypatch.setitem(sys.modules, "transformers", None)
+    expected = scoring._configured_fingerprints()
+    assert expected["finbert"]["revision"] == config.FINBERT_REVISION
+    assert expected["finbert"]["id2label"] == config.FINBERT_ID2LABEL
+    monkeypatch.setattr(config, "FINBERT_MAX_LENGTH", 128)
+    assert scoring._configured_fingerprints()["finbert"]["max_length"] == 128
+
+
+def test_default_rescore_loads_only_changed_scorer(tmp_path, monkeypatch):
+    cache = tmp_path / "scores.parquet"
+    old = [_StubScorer(name=n) for n in config.SCORERS]
+    scoring.score_all(_headlines(2), cache, old, verbose=False)
+    changed = _StubScorer(name="finbert", value=-.5, fingerprint={"version": "v2"})
+    identities = {s.name: s.fingerprint for s in old}
+    identities["finbert"] = changed.fingerprint
+    monkeypatch.setattr(scoring, "_configured_fingerprints", lambda: identities)
+
+    def build(names):
+        assert names == ["finbert"]
+        return [changed]
+
+    monkeypatch.setattr(scoring, "build_scorers", build)
+    result = scoring.score_all(_headlines(2), cache, verbose=False,
+                               on_fingerprint_change="rescore")
+    assert changed.scored == 2
+    np.testing.assert_allclose(result.score_finbert, -.5)
+    np.testing.assert_allclose(result.score_lm, .5)
+
+
+def test_interrupted_subset_rescore_does_not_restore_old_values(tmp_path):
+    cache = tmp_path / "scores.parquet"
+    heads = _headlines(4)
+    scoring.score_all(heads, cache, [_StubScorer()], verbose=False)
+    fp = {"version": "v2"}
+    interrupted = _StubScorer(value=-.5, fingerprint=fp, fail_after=1)
+    with pytest.raises(KeyboardInterrupt):
+        scoring.score_all(heads.iloc[:2], cache, [interrupted], verbose=False,
+                          checkpoint_every=1, on_fingerprint_change="rescore")
+    saved, _ = scoring.load_cache(cache)
+    assert saved.score_lm.notna().sum() == 1
+    again = _StubScorer(value=-.5, fingerprint=fp)
+    result = scoring.score_all(heads, cache, [again], verbose=False)
+    assert again.scored == 3
+    np.testing.assert_allclose(result.score_lm, -.5)

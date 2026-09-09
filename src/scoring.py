@@ -261,6 +261,27 @@ def build_scorers(names: Sequence[str] = config.SCORERS) -> list[Scorer]:
     return [factories[n]() for n in names]
 
 
+def _configured_fingerprints() -> dict[str, dict]:
+    """Expected default measurements, without importing torch or loading weights.
+
+    Lexicons must be inspected to establish their identity. FinBERT's expected
+    identity comes from the pinned checkpoint contract; its loaded identity is
+    checked again if inference is needed.
+    """
+    if not config.FINBERT_REVISION or not config.FINBERT_ID2LABEL:
+        raise ValueError("default cached FinBERT scoring requires a pinned revision and labels")
+    return {
+        "lm": LMScorer().fingerprint,
+        "vader": VaderScorer().fingerprint,
+        "finbert": {
+            "scorer": "finbert", "model": config.FINBERT_MODEL,
+            "revision": config.FINBERT_REVISION,
+            "max_length": config.FINBERT_MAX_LENGTH,
+            "id2label": {int(k): v.lower() for k, v in config.FINBERT_ID2LABEL.items()},
+        },
+    }
+
+
 def meta_path(cache_path: str | Path) -> Path:
     """Sidecar holding the fingerprint of whatever produced each cached column."""
     cache_path = Path(cache_path)
@@ -300,8 +321,7 @@ def _canonical_fingerprint(fingerprint: dict) -> dict:
 def load_cache(cache_path: str | Path) -> tuple[pd.DataFrame, dict]:
     """Cached scores and their recorded identities; refuse unknown provenance.
 
-    This checks identity presence even on the default completed-cache path.
-    Comparing those identities to current artifacts is separate (R01b).
+    Current-artifact comparisons are performed by score_all before any writes.
     """
     cache_path = Path(cache_path)
     cols = [f"score_{n}" for n in config.SCORERS]
@@ -328,6 +348,17 @@ def load_cache(cache_path: str | Path) -> tuple[pd.DataFrame, dict]:
                 "Restore the original metadata or rebuild into a new cache path; "
                 "on_fingerprint_change='rescore' cannot establish unknown provenance."
             )
+    populated = cache[cols].notna().any(axis=1)
+    if "text_sha256" not in cache:
+        cache["text_sha256"] = pd.Series(index=cache.index, dtype="string")
+    valid_hash = cache["text_sha256"].astype("string").str.fullmatch(r"[0-9a-f]{64}").fillna(False)
+    if (populated & ~valid_hash).any():
+        raise IncompatibleCache(
+            "cached scores have missing or invalid text identity; rebuild into a new "
+            "cache path rather than assuming the current text produced old scores"
+        )
+    if cache["headline_id"].isna().any() or cache["headline_id"].duplicated().any():
+        raise IncompatibleCache("cache must contain unique, non-null headline_id values")
     return cache, meta
 
 
@@ -352,7 +383,9 @@ def score_all(
     produced by a *different measurement*, and reusing it would silently mix two
     definitions inside one column. That raises `IncompatibleCache` by default;
     `on_fingerprint_change="rescore"` discards the stale column and recomputes
-    it. Populated columns without recorded identity are refused at load time;
+    it across the entire cache, including rows outside the requested subset.
+    Changed raw text invalidates every scorer for that headline. Populated
+    columns without recorded identity are refused at load time;
     rebuild into a new cache path rather than inventing their provenance.
 
     **Resumption (B14).** Scoring proceeds in batches of `checkpoint_every` rows
@@ -362,25 +395,52 @@ def score_all(
     hours long and the plan's time budget assumes it is not repeated.
     """
     cache_path = Path(cache_path)
+    if on_fingerprint_change not in {"raise", "rescore"}:
+        raise ValueError("on_fingerprint_change must be 'raise' or 'rescore'")
+    if checkpoint_every <= 0:
+        raise ValueError("checkpoint_every must be positive")
     cols = [f"score_{n}" for n in config.SCORERS]
     cache, meta = load_cache(cache_path)
     fingerprints = dict(meta.get("fingerprints", {}))
+    heads = headlines_df[["headline_id", "text"]].copy()
+    if heads["headline_id"].isna().any() or heads["headline_id"].duplicated().any():
+        raise ValueError("headlines must contain unique, non-null headline_id values")
+    if not heads["text"].map(lambda value: isinstance(value, str)).all():
+        raise ValueError("headline text must be a non-null string")
+    heads["text_sha256"] = heads["text"].map(
+        lambda text: hashlib.sha256(text.encode("utf-8")).hexdigest()
+    )
+    out = heads.merge(cache, on="headline_id", how="left", validate="one_to_one",
+                      suffixes=("", "_cached"))
+    changed_text = (out["text_sha256_cached"].notna()
+                    & out["text_sha256"].ne(out["text_sha256_cached"]))
+    if changed_text.any():
+        if on_fingerprint_change == "raise":
+            raise IncompatibleCache(
+                f"headline text changed for {int(changed_text.sum())} cached IDs; "
+                "use on_fingerprint_change='rescore' to invalidate all their scores"
+            )
+        out.loc[changed_text, cols] = np.nan
+    out = out.drop(columns="text_sha256_cached")
 
-    out = headlines_df[["headline_id", "text"]].merge(cache, on="headline_id", how="left")
+    supplied = None if scorers is None else list(scorers)
+    if supplied is not None:
+        names = [s.name for s in supplied]
+        if len(set(names)) != len(names) or not set(names) <= set(config.SCORERS):
+            raise ValueError("scorers must have unique configured names")
+        expected = {s.name: getattr(s, "fingerprint", None) for s in supplied}
+    else:
+        expected = _configured_fingerprints()
+    expected = {name: _canonical_fingerprint(fp) for name, fp in expected.items()}
 
-    if scorers is None:
-        needed = [n for n in config.SCORERS if out[f"score_{n}"].isna().any()]
-        scorers = build_scorers(needed) if needed else []
-
-    for scorer in scorers:
-        name, col = scorer.name, f"score_{scorer.name}"
-        current = _canonical_fingerprint(getattr(scorer, "fingerprint", None))
+    # Preflight every selected identity before scoring/checkpointing any column.
+    for name, current in expected.items():
+        col = f"score_{name}"
         stored = fingerprints.get(name)
-        if stored is not None:
+        if stored:
             stored = _canonical_fingerprint(stored)
-
-        if stored is not None and current is not None and stored != current:
-            already = int(out[col].notna().sum())
+        if stored and stored != current:
+            already = int(cache[col].notna().sum())
             message = (
                 f"cached {name!r} scores were produced by a different measurement.\n"
                 f"  cached : {stored}\n"
@@ -394,15 +454,23 @@ def score_all(
                     "Re-run with on_fingerprint_change='rescore' to discard and "
                     "recompute, or restore the previous artifact."
                 )
-            if on_fingerprint_change != "rescore":
-                raise ValueError(
-                    f"on_fingerprint_change must be 'raise' or 'rescore', "
-                    f"got {on_fingerprint_change!r}"
-                )
             if verbose:
                 print(f"[score_all] {message}\n[score_all] discarding and rescoring")
             out[col] = np.nan
+            cache[col] = np.nan  # including rows not present in this request
+        fingerprints[name] = current
 
+    if supplied is None:
+        needed = [name for name in expected if out[f"score_{name}"].isna().any()]
+        supplied = build_scorers(needed) if needed else []
+    # Check loaded objects against the preflight snapshot before any writes.
+    for scorer in supplied:
+        if _canonical_fingerprint(scorer.fingerprint) != expected[scorer.name]:
+            raise IncompatibleCache(f"loaded {scorer.name} identity differs from preflight")
+
+    for scorer in supplied:
+        name, col = scorer.name, f"score_{scorer.name}"
+        current = expected[name]
         todo = np.flatnonzero(out[col].isna().to_numpy())
         if not len(todo):
             if verbose:
@@ -433,7 +501,7 @@ def score_all(
 
 def _checkpoint(out, cols, cache, cache_path: Path, fingerprints: dict) -> None:
     """Merge the in-progress scores into the cache and write both files."""
-    scores = out[["headline_id"] + cols].copy()
+    scores = out[["headline_id", "text_sha256"] + cols].copy()
     for c in cols:
         scores[c] = scores[c].astype("float32")
     merged = pd.concat(

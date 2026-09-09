@@ -2,7 +2,17 @@
 
 Recorded: 2026-09-09.
 
-Last updated: 2026-09-09, after audit repair R01a. B22 remains blocked on the environment; further cache repairs precede scoring.
+Last updated: 2026-09-09, after audit repair R01b. B22 remains blocked on the environment; checkpoint consistency work precedes scoring.
+
+## Audit repair checkpoint — R01b
+
+**Authorization:** user requested "do the next", continuing the [audit implementation plan](audit-implementation-plan-2026-09-09.md).
+
+**Implementation:** default completed-cache calls compare all configured identities before reuse, with no FinBERT model loading. LM/VADER identity still requires their local lexicons. All selected identities are preflighted before any scorer writes. Fingerprint changes under explicit rescore invalidate the full cached column, including unrequested rows. Raw UTF-8 headline text is hashed into a new cache-only `text_sha256` column; changed text invalidates all scorers for affected IDs under explicit rescore. Missing legacy text identity refuses reuse and requires a rebuild to a new cache path. Public returned score columns are unchanged. Duplicate/null IDs are rejected to prevent ambiguous cache joins.
+
+**Verification:** eight regression cases added. Full suite **141 passed, 7 skipped** (Windows PyTorch DLL block); whitespace diff check passed. Tests include interrupted subset resumption and a default completed-cache path that refuses to load model weights. No substantive scoring, corpus changes, environment changes or Git writes.
+
+**Remaining:** next is R01c's concrete checkpoint consistency proposal, then R01d implementation. Atomic consistency between parquet and JSON is still unresolved; successful batch resumption tests do not establish safety between those writes. The analysis runner's own provenance gate and broader measurement fingerprint completeness remain later work. Stop at this reviewable increment.
 
 ## Audit repair checkpoint — R01a
 

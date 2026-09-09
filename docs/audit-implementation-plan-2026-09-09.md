@@ -4,11 +4,21 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
+**R01b completed and fixture-tested (latest).** Default calls validate all configured scorer identities even when every value is cached. LM/VADER identities require their local lexicons; FinBERT's expected identity uses its pinned configuration without importing torch or loading weights. Any loaded scorer is checked against the preflight identity before writes. Explicit scorer subsets validate those selected measurements.
+
+The cache parquet now carries `text_sha256`, the SHA-256 of the exact UTF-8 scoring text. The returned score frame retains its existing columns. Populated legacy caches without text identity require rebuilding to a new path; their identity is never inferred from current text. Changed text refuses reuse by default; explicit rescore invalidates all scorer values for the affected IDs. Changed scorer fingerprints invalidate that entire cached column, including rows outside the request. All selected identities are checked before any scoring/checkpoint, and duplicate/null IDs are rejected.
+
+Verification: eight new regression cases, including default completed-cache checks without model loading, selective scorer construction, raw-text change detection, missing text identity, preflight ordering and interrupted subset resumption. Full suite **141 passed, 7 skipped** (the existing PyTorch DLL block); `git diff --check` passed. No corpus scoring or Git writes.
+
+**Next: R01c, the checkpoint consistency contract proposal.** Data and metadata remain separate writes; R01b does not solve interruption between those writes. Input and scorer checks in the analysis runner remain R04b/R15. Broader fingerprint completeness (e.g. VADER lexicon-content hashing and implementation versioning) remains an audit follow-up.
+
+### Previous checkpoint: R01a
+
 **R01a completed and fixture-tested.** Fingerprints now use their JSON representation for comparison; FinBERT records the constructor's revision rather than rereading global config; populated cache columns with missing/null/empty identities are rejected before scorer construction. New scorers must supply a nonempty JSON-compatible identity. Unknown-provenance caches require original metadata or a rebuild into a new cache path; they are not relabelled by the rescore option.
 
 Verification: 13 new test cases; scorer suite **34 passed, 7 skipped**; full suite **133 passed, 7 skipped**. The seven skips remain the Windows PyTorch DLL block. Revision tests use mocked model/tokenizer loaders and run without PyTorch. `git diff --check` passed. No corpus scoring, environment changes or Git writes.
 
-**Next: R01b.** Comparing populated columns against current artifacts on the default path, input-content identity, and safe subset invalidation remain outstanding. Two-file checkpoint consistency remains R01c/R01d. R01a does not close the full cache audit finding.
+At the end of R01a, default-path validation, input-content identity and subset invalidation remained open; those are now addressed by R01b above. Two-file checkpoint consistency remains R01c/R01d.
 
 **Recommendation:** start with cache identity repair, not B22's scoring pilot. Meanwhile, the annotation-preparation and inference-fixture work can proceed independently of the PyTorch blocker once their own contracts are settled. Human labels and working model inference are dependencies for results, not reasons to postpone all code work.
 
