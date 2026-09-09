@@ -1,6 +1,6 @@
 # Handover
 
-Date: 2026-09-09. Written at the close of Phase B.
+Date: 2026-09-09. Written at the close of Phase B; updated after corpus assembly.
 
 Read this first if you are picking the project up. It records what exists, what was decided and why, what is deliberately absent, and what blocks the next step. Authority for each decision lives in the linked document; this file is a map, not a substitute.
 
@@ -10,9 +10,9 @@ Related: [implementation plan](implementation-plan.md) (B01–B28) · [decision 
 
 ## 1. Where the project stands, in one paragraph
 
-The protocols are written, the candidate dataset has been audited, the universe and window are recorded, the model and file artifacts are pinned, and every timing defect found in the review has been fixed with a regression test behind it. **No corpus has been assembled, no text has been scored, no labels have been collected, no model has been fitted, and no empirical result exists.** That is the intended state at the end of Phase B, not an omission.
+The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: 869,205 deduplicated Benzinga headlines over 2,516 trading sessions, with D4 now frozen on coverage evidence. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
 
-**94 tests pass, 2 skip** (the skips are VADER and FinBERT, which are optional until scoring begins).
+**107 tests pass, 2 skip** (the skips are VADER and FinBERT, which are optional until scoring begins).
 
 ## 2. What the study is
 
@@ -122,7 +122,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | B01 | Independent-validation protocol | ✅ | [`validation-protocol.md`](validation-protocol.md) |
 | B02 | Inference protocol | ✅ | [`inference-protocol.md`](inference-protocol.md) |
 | B03 | Bounded news audit | ✅ | [`data-audit-fnspid.md`](data-audit-fnspid.md), `notebooks/01_data_audit.ipynb`, `src/audit.py` |
-| B04 | Universe, window, artifact provenance | 🟡 | `config.py`. Window **provisional**; Loughran–McDonald release **unresolved** |
+| B04 | Universe, window, artifact provenance | 🟡 | `config.py`. Window **frozen** 2026-09-09 on the census; Loughran–McDonald release still **unresolved** |
 | B05 | Timing and missing-data contract | ✅ | [`timing-contract.md`](timing-contract.md) |
 
 ### Phase B — timing repairs
@@ -183,20 +183,31 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | Placebo resamples blocks with replacement | `inference.permutation_pvalue` | B19 |
 | `requirements.txt` versions are declared, not `pip freeze`d | | B28 |
 
-## 5. The next increment
+## 5. Corpus assembly and census — done
 
-**Corpus assembly.** Stream the full 5.7 GB `All_external.csv` through `load_news` filtered to `benzinga.com`, windowed to 2010–2019, into `interim/headlines.parquet`. The loader is chunked and tested for this; it has never been run on the real file.
+Streamed the whole 5.73 GB file once (13,057,514 rows, 11.5 min), storing only the filtered result. Full findings in [`data-audit-fnspid.md`](data-audit-fnspid.md) §11.
 
-Then measure what the cluster sample could not, all of which the audit explicitly withheld:
+**The selected source occupies two separate blocks.** Kept rows plateaued at 0.55 GB, then resumed at 2.44 GB. Reading only the first block — which the audit's offset map would have suggested was enough — would have silently dropped ~122,000 headlines, about 9%.
 
-1. true dedup rate, exact and near-duplicate;
-2. headlines per session, and the zero-news session count;
-3. company concentration, and how much weight the most-covered tickers carry;
-4. whether coverage is stable enough across 2010–2019 to **freeze** the window.
+| Measurement | Result |
+|---|---|
+| Dedup rate | **38.5%** (431,602 exact + 111,717 near) |
+| Headlines per session | mean 345, median 339 |
+| Zero-news sessions | **2 in ten years** |
+| Distinct tickers | 5,707; top-10 share 2.1%; effective 1,839 names |
+| Coverage stability | no year below tolerance → **D4 frozen** |
 
-Point 4 is a decision gate: the window is provisional until it is made, and it must be frozen **before any sentiment–return coefficient is examined**, with the freeze logged.
+`interim/headlines_raw.parquet` (1,412,524) keeps the pre-dedup corpus so the rate stays checkable; `interim/headlines.parquet` (869,205) is the analysis input.
 
-The plan is explicit that this belongs in its own instructed session rather than happening as a side effect of a smaller fix.
+Two corrections came out of it, both recorded: the earlier "0.05% malformed timestamps" was an artifact of byte-range slicing, not a property of the file (the full read produced **zero**); and the window's end bound was inclusive of the following midnight, which for a date-only corpus admitted a whole extra day.
+
+## 5a. The next increment
+
+**B22 — the scoring pilot.** `rescore.py --time-only` times FinBERT on 1,000 headlines and extrapolates. 869,205 headlines is the real workload, and the budget question must be answered by measurement before a full pass is launched. `torch` and `transformers` are not yet installed.
+
+If the projected time is unacceptable, the plan's rule is to shorten the *window* and record it — **never** to subsample headlines within days, which would bias both `S_t` and `d_t`. Note that shortening the window now means unfreezing D4, which requires a dated log entry.
+
+In parallel and independent of scoring: **B12** (FinBERT class probabilities, preserving the verified label order) and **B10** (the PhraseBank loader), plus obtaining the Loughran–McDonald dictionary.
 
 ## 6. Blockers and external dependencies
 
@@ -204,7 +215,8 @@ The plan is explicit that this belongs in its own instructed session rather than
 |---|---|---|
 | **Loughran–McDonald dictionary** not obtained | Any LM scoring; Act 1 | Download by hand from the Notre Dame SRAF site (no stable link) into `data/raw/LoughranMcDonald_MasterDictionary.csv`, then record the release in `config.LM_DICT_VERSION` |
 | **Human annotation** not started | B11, B15, B24, all of Act 1 | Needs a named annotator; ideally a second on a 20% subset for kappa. Protocol is written and executable |
-| Window not frozen | B25 | Corpus assembly, then the §5 decision |
+| ~~Window not frozen~~ | — | **Resolved**: frozen 2026-09-09 on the census |
+| `torch` / `transformers` not installed | B22, B23, all scoring | `pip install torch transformers vaderSentiment` |
 | `datasets==4.0.0` loader | B10, PhraseBank fallback only | Not on the critical path unless annotation fails |
 
 ## 7. Environment notes

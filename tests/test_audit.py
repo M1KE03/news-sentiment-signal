@@ -279,3 +279,53 @@ def test_hour_histogram_covers_all_24_hours(loaded):
     h = audit.hour_histogram(df[df.source == "reuters"])
     assert list(h.index) == list(range(24))
     assert h.sum() == (df.source == "reuters").sum()
+
+
+# ------------------------------------------- corpus-census-only statistics
+
+
+def test_concentration_profile_measures_effective_breadth():
+    """A handful of names carrying the aggregate is a property to report."""
+    tags = [["AAPL"]] * 500 + [["MSFT"]] * 300 + [[f"T{i}"] for i in range(200)]
+    df = pd.DataFrame({"tickers": tags})
+    prof = audit.concentration_profile(df)
+    assert prof["n_distinct_tickers"] == 202
+    assert prof["share_top10"] == pytest.approx(0.8 + 8 / 1000)
+    # Two names hold 80%, so the aggregate effectively averages over very few.
+    assert prof["effective_n_tickers"] < 10
+    assert prof["untagged_share"] == 0.0
+
+
+def test_concentration_profile_counts_untagged_rows():
+    df = pd.DataFrame({"tickers": [["AAPL"], [], [], ["MSFT"]]})
+    prof = audit.concentration_profile(df)
+    assert prof["untagged_share"] == pytest.approx(0.5)
+    assert prof["n_tagged"] == 2
+
+
+def test_window_stability_flags_a_thin_year():
+    cal = pd.DatetimeIndex(pd.bdate_range("2015-01-01", "2017-12-31"))
+    counts = pd.Series(
+        [3 if d.year == 2016 else 40 for d in cal], index=cal
+    )   # 2016 collapses to a fraction of the neighbouring years
+    out = audit.window_stability(counts, cal)
+    assert out.loc[2016, "unstable"]
+    assert not out.loc[2015, "unstable"]
+    assert out.loc[2016, "thin_share"] == pytest.approx(1.0)
+
+
+def test_window_stability_counts_zero_news_sessions():
+    cal = pd.DatetimeIndex(pd.bdate_range("2015-01-01", "2015-12-31"))
+    counts = pd.Series([0 if i % 10 == 0 else 20 for i in range(len(cal))], index=cal)
+    out = audit.window_stability(counts, cal)
+    assert out.loc[2015, "zero_news"] == sum(1 for i in range(len(cal)) if i % 10 == 0)
+    assert 0.05 < out.loc[2015, "zero_news_share"] < 0.15
+
+
+def test_window_stability_covers_sessions_absent_from_the_counts():
+    """Sessions with no headlines at all must appear as zeros, not vanish."""
+    cal = pd.DatetimeIndex(pd.bdate_range("2015-01-01", "2015-03-31"))
+    counts = pd.Series([10] * 5, index=cal[:5])
+    out = audit.window_stability(counts, cal)
+    assert out.loc[2015, "sessions"] == len(cal)
+    assert out.loc[2015, "zero_news"] == len(cal) - 5

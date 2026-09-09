@@ -34,7 +34,15 @@ Date, Article_title, Stock_symbol, Url, Publisher, Author,
 Article, Lsa_summary, Luhn_summary, Textrank_summary, Lexrank_summary
 ```
 
-`Date` values are formatted `YYYY-MM-DD HH:MM:SS UTC`. **99.95% conform exactly**; the 180 that do not are fragments of article body text (`"$1.34 billion dollar bridge loan last week as the value of"`, `"with the matter.  Bakrie & Brothers"`), which proves that the `Article` field contains **embedded newlines**. Any loader that splits on newlines rather than parsing CSV quoting will silently corrupt rows. The loader drops non-conforming `Date` rows explicitly and reports the count.
+`Date` values are formatted `YYYY-MM-DD HH:MM:SS UTC`. In the *sliced sample* 99.95% conformed; the 180 that did not were fragments of article body text (`"$1.34 billion dollar bridge loan last week as the value of"`, `"with the matter.  Bakrie & Brothers"`), which proves that the `Article` field contains **embedded newlines**. Any loader that splits on newlines rather than parsing CSV quoting will silently corrupt rows. The loader drops non-conforming `Date` rows explicitly and reports the count.
+
+> **Correction, made at corpus assembly.** Reading the whole file with proper CSV
+> quoting produced **0 malformed timestamps across all 13,057,514 rows**. Those
+> 180 were an artifact of *byte-range slicing* cutting records mid-field, not a
+> property of the data. The embedded-newline finding stands unchanged — it is
+> precisely why slicing broke — but the "0.05% malformed" figure described the
+> audit method, not the file, and should not be quoted as a data-quality
+> statistic.
 
 ## 3. Timezone evidence
 
@@ -180,3 +188,126 @@ Ten calendar years, ~2,500 trading sessions, comfortably above the ≥1,250 targ
 | Actual-session-close work (B07) has no bearing on a date-only corpus | B05/B07 scope shrinks; keep the correction, drop its urgency |
 | Window is provisional until the corpus is assembled | B04 revisit, logged when frozen |
 | Assembling the corpus needs the full 5.7 GB file, filtered to Benzinga | its own instructed increment; not a side effect of a small fix |
+
+
+---
+
+## 11. Corpus census (assembly, 2026-09-09)
+
+The B03 sample was a cluster sample over tickers, so duplication, per-session
+coverage and company concentration were withheld rather than estimated. The full
+file was then streamed once — 5.73 GB, 13,057,514 rows, 11.5 minutes — and
+filtered to the selected universe. Nothing but the filtered result was stored.
+
+| | |
+|---|---|
+| Rows read | 13,057,514 |
+| Malformed timestamps | **0** |
+| Rejected as wrong source | 11,528,227 |
+| Kept (Benzinga, 2010–2019) | 1,412,524 |
+| After deduplication | **869,205** |
+
+Largest rejected hosts: `reuters.com` 8,556,310 · `seekingalpha.com` 897,219 ·
+`lenta.ru` 800,975 · `bloomberg.com` 446,656 · `zacks.com` 429,559.
+
+### The selected source occupies two separate blocks
+
+Kept rows appeared between **0.06 GB and 2.87 GB**, but not continuously: the
+count plateaued at 1,290,641 by 0.55 GB, stayed flat through 1.9 GB of other
+corpora, then **resumed at 2.44 GB** and ran to 2.87 GB.
+
+This is why the whole file was read rather than the byte range where the audit
+sample found Benzinga. Stopping after the first block — which the §5 offset map
+would have suggested was sufficient, and which would have saved 90% of the
+transfer — would have **silently dropped ~122,000 headlines**, about 9% of the
+corpus, with no error and no warning.
+
+### 1. Duplication — 38.5%
+
+| | |
+|---|---|
+| Exact duplicates removed | 431,602 |
+| Near-duplicates removed | 111,717 |
+| **Dedup rate** | **38.5%** |
+
+Far from incidental. The dominant cause is the structural one flagged in §6: a
+market-wide roundup is emitted **once per tagged ticker**, so a single editorial
+act appeared once for every symbol it mentioned. Left in place it would have
+weighted that one act by its ticker count in every daily mean.
+
+Near-duplicate detection uses sliding-window deletion-signature blocking, which
+is exact for the 94.3% of headlines under 20 unique tokens; above that a
+two-token difference could clear the 0.9 threshold unseen. The exposure is
+reported rather than assumed away.
+
+### 2. Per-session coverage — dense and near-complete
+
+| | |
+|---|---|
+| Sessions in window | 2,516 |
+| Mean headlines/session | 345.4 |
+| Median | 339 |
+| Zero-news sessions | **2 (0.08%)** |
+| Sessions with n < 5 (lose d_t) | 0.08% |
+| Unassignable headlines | 91 |
+
+The 91 unassignable are dated 2019-12-31 and defer to 2020-01-02, outside the
+calendar — correctly dropped rather than clipped onto the last session.
+
+Two zero-news sessions in ten years means the D9 exclusion is nearly inert here,
+and `d_t` is defined on essentially the whole sample.
+
+### 3. Company concentration — well spread
+
+| | |
+|---|---|
+| Distinct tickers | 5,707 |
+| Untagged | 0.00% |
+| Top-10 share | 2.1% |
+| Top-50 share | 8.7% |
+| Top-100 share | 14.7% |
+| Effective number of names (1/HHI) | **1,839** |
+
+Most covered: EBAY, EWU, BBRY, MRK, SLV, MU, NFLX, QCOM.
+
+This is a better result than the design assumed. The equal-weighted daily mean
+was a stated risk — more-covered companies receive more weight — but with an
+effective 1,839 names and a top-10 share of 2.1%, the aggregate is not carried
+by a handful of mega-caps. It remains "average tone in this collection", not
+market sentiment, and the presence of ETFs (`EWU`, `SLV`) among the most-covered
+names is a reminder that the universe is not a clean equity cross-section.
+
+### 4. Coverage stability, and the D4 freeze
+
+| Year | Sessions | Headlines | Median/session | vs. median | Zero-news |
+|---|---:|---:|---:|---:|---:|
+| 2010 | 252 | 52,031 | 170.5 | **0.50** | 1 |
+| 2011 | 252 | 101,786 | 390.5 | 1.14 | 0 |
+| 2012 | 250 | 99,689 | 384.5 | 1.12 | 0 |
+| 2013 | 252 | 86,396 | 335.0 | 0.97 | 0 |
+| 2014 | 252 | 91,678 | 345.5 | 1.01 | 0 |
+| 2015 | 252 | 91,080 | 359.5 | 1.05 | 0 |
+| 2016 | 252 | 94,650 | 353.5 | 1.03 | 0 |
+| 2017 | 251 | 76,612 | 287.0 | 0.83 | 0 |
+| 2018 | 251 | 77,883 | 285.0 | 0.83 | 0 |
+| 2019 | 252 | 97,309 | 342.0 | 0.99 | 0 |
+
+No year falls below the stability tolerance. **D4 is frozen at 2010-01-01 …
+2019-12-31**, 2,516 sessions against a ≥1,250 target, recorded in `config.py`
+with `SAMPLE_WINDOW_FROZEN_ON`. The freeze was made here, on coverage evidence
+alone, **before any sentiment–return coefficient was examined**.
+
+One caveat carried forward rather than resolved: **2010 carries about half the
+median coverage of the rest** (170 vs 344 headlines per session). That does not
+bias `S_t`, but it roughly doubles its sampling variance that year, which under
+errors-in-variables means more attenuation in 2010 than elsewhere. It clears the
+tolerance and is kept. The **drop-2010 variant is declared now, in advance**, as
+a prespecified sensitivity (`config.SENSITIVITY_DROP_FIRST_YEAR`), so it cannot
+be chosen after seeing a result.
+
+### Artifacts
+
+| File | Rows | Meaning |
+|---|---:|---|
+| `interim/headlines_raw.parquet` | 1,412,524 | filtered to the universe, **not** deduplicated; kept so the dedup rate stays checkable |
+| `interim/headlines.parquet` | 869,205 | the analysis input: filtered **and** deduplicated |

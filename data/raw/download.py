@@ -125,6 +125,128 @@ def fetch_fnspid_sample(
     return out
 
 
+class _CountingStream:
+    """File-like wrapper that records how many bytes have been consumed.
+
+    Byte position is evidence, not decoration: `All_external.csv` stores each
+    sub-corpus as a contiguous block, so knowing where the kept rows came from
+    is how we confirm the selected source was read in full rather than
+    truncated at some offset.
+    """
+
+    def __init__(self, raw):
+        self._raw = raw
+        self.pos = 0
+
+    def read(self, n: int = -1) -> bytes:
+        b = self._raw.read(n)
+        self.pos += len(b)
+        return b
+
+    def readable(self) -> bool:
+        return True
+
+
+def assemble_corpus(
+    url: str = FNSPID_URL,
+    domains: tuple[str, ...] | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    chunksize: int = 250_000,
+    out: Path | None = None,
+) -> Path:
+    """Stream the full 5.7 GB file, keep only the selected universe, write parquet.
+
+    The whole file is read exactly once and never stored: only rows passing the
+    source filter and the window survive into memory. Reading all of it -- rather
+    than the byte range where the selected source appeared in the audit sample --
+    is deliberate. A partial read would silently truncate the corpus if the
+    source has blocks the sample never touched, and silent truncation is the
+    failure mode this project has spent every increment eliminating.
+
+    Progress and the byte offsets at which kept rows were found are printed, so
+    the "read in full" claim is checkable rather than asserted.
+    """
+    import sys
+    import time
+
+    from src import data as sdata
+
+    domains = tuple(domains) if domains is not None else tuple(config.NEWS_SOURCE_DOMAINS)
+    start = start or config.SAMPLE_START
+    end = end or config.SAMPLE_END
+    out = out or config.HEADLINES_PARQUET
+
+    total = remote_size(url)
+    print(f"streaming {total / 1e9:.2f} GB   domains={domains}   window={start}..{end}")
+    t0 = time.perf_counter()
+    offsets: list[tuple[float, int]] = []
+
+    with requests.get(url, stream=True, timeout=600) as r:
+        r.raise_for_status()
+        r.raw.decode_content = True
+        stream = _CountingStream(r.raw)
+
+        def progress(i, kept, stats):
+            gb = stream.pos / 1e9
+            if len(kept):
+                offsets.append((gb, len(kept)))
+            elapsed = time.perf_counter() - t0
+            pct = 100 * stream.pos / total
+            rate = stream.pos / 1e6 / max(elapsed, 1e-9)
+            eta = (total - stream.pos) / 1e6 / max(rate, 1e-9) / 60
+            print(
+                f"  chunk {i:>3}  {gb:5.2f} GB ({pct:5.1f}%)  "
+                f"read {stats['n_read']:>10,}  kept {stats['n_kept_running']:>9,}  "
+                f"{rate:4.1f} MB/s  eta {eta:4.1f} min",
+                flush=True,
+            )
+
+        # _parse_chunk maintains counters; add a running kept total for progress.
+        original = sdata._parse_chunk
+
+        def counting_parse(raw, spec, doms, s, e, stats):
+            kept = original(raw, spec, doms, s, e, stats)
+            stats["n_kept_running"] = stats.get("n_kept_running", 0) + len(kept)
+            return kept
+
+        sdata._parse_chunk = counting_parse
+        try:
+            df = sdata.load_news(
+                stream, domains=domains, start=start, end=end,
+                chunksize=chunksize, on_chunk=progress,
+            )
+        finally:
+            sdata._parse_chunk = original
+
+    stats = df.attrs["load_stats"]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out, index=False)
+
+    span = (
+        f"{df['ts_utc'].min():%Y-%m-%d} .. "
+        f"{df['ts_utc'].max():%Y-%m-%d}"
+        if len(df) else "(empty)"
+    )
+    print(
+        f"\nwrote {out}\n"
+        f"  rows read        {stats['n_read']:>12,}\n"
+        f"  bad timestamps   {stats['n_bad_timestamp']:>12,}\n"
+        f"  wrong source     {stats['n_wrong_source']:>12,}\n"
+        f"  kept (in window) {stats['n_kept']:>12,}\n"
+        f"  span             {span}\n"
+        f"  elapsed          {(time.perf_counter() - t0) / 60:.1f} min"
+    )
+    if offsets:
+        print(
+            f"  kept rows found between {offsets[0][0]:.2f} GB and "
+            f"{offsets[-1][0]:.2f} GB of {total / 1e9:.2f} GB"
+        )
+    top = sorted(stats["rejected_hosts"].items(), key=lambda kv: -kv[1])[:8]
+    print("  rejected hosts:", ", ".join(f"{h}={n:,}" for h, n in top))
+    return out
+
+
 def fetch_market() -> None:
     """SPY + ^VIX for the locked window -> interim/market.parquet."""
     from src import data as sdata
@@ -143,12 +265,16 @@ def main() -> None:
                     help="bounded range-slice sample of FNSPID All_external.csv")
     ap.add_argument("--slices", type=int, default=24)
     ap.add_argument("--slice-mb", type=int, default=6)
+    ap.add_argument("--assemble", action="store_true",
+                    help="stream the full file and write the filtered corpus")
     ap.add_argument("--market", action="store_true")
     args = ap.parse_args()
 
     RAW.mkdir(parents=True, exist_ok=True)
     if args.fnspid_sample:
         fetch_fnspid_sample(n_slices=args.slices, slice_mb=args.slice_mb)
+    if args.assemble:
+        assemble_corpus()
     if args.market:
         fetch_market()
     if not config.LM_DICT_PATH.exists():

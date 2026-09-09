@@ -387,6 +387,78 @@ def duplication_profile(df: pd.DataFrame, clustered: bool = True, **dedup_kwargs
     return out
 
 
+def concentration_profile(
+    df: pd.DataFrame, ticker_col: str = "tickers", top: int = 15
+) -> dict:
+    """How much of the corpus a few names carry. Requires a census, not a sample.
+
+    The daily aggregate S_t is an equal-weighted mean over headlines, so a
+    company covered ten times more often carries ten times the weight. That is
+    a property of the measured quantity -- "average tone in this collection" --
+    and it has to be reported rather than discovered by a reader. It cannot be
+    estimated from a ticker-clustered sample, which is why it waited for the
+    assembled corpus.
+    """
+    tags = df[ticker_col]
+    exploded = tags.explode().dropna()
+    counts = exploded.value_counts()
+    total = int(counts.sum())
+    share = counts / max(total, 1)
+    return {
+        "n_headlines": int(len(df)),
+        "n_tagged": int((tags.map(len) > 0).sum()),
+        "untagged_share": float((tags.map(len) == 0).mean()),
+        "n_distinct_tickers": int(counts.size),
+        "top": counts.head(top),
+        "top_share": share.head(top),
+        "share_top10": float(share.head(10).sum()),
+        "share_top50": float(share.head(50).sum()),
+        "share_top100": float(share.head(100).sum()),
+        # Herfindahl over ticker mentions: 1/HHI is the "effective number" of
+        # names the aggregate really averages over.
+        "hhi": float((share**2).sum()),
+        "effective_n_tickers": float(1 / max((share**2).sum(), 1e-12)),
+    }
+
+
+def window_stability(
+    per_session: pd.Series, calendar: pd.DatetimeIndex, tol: float = 0.25
+) -> pd.DataFrame:
+    """Per-year coverage on the assembled corpus, for the D4 freeze decision.
+
+    Reports, per year: sessions, headlines, mean and median per session, the
+    zero-news share, and the share of sessions too thin for dispersion. A year
+    whose median falls below `tol` of the sample median is flagged: coverage
+    that unstable makes S_t a different measurement in that year, which is the
+    coverage-drift limitation the review named.
+    """
+    idx = pd.DatetimeIndex(calendar).normalize()
+    s = per_session.reindex(idx, fill_value=0)
+    frame = pd.DataFrame({"n": s.to_numpy()}, index=idx)
+    frame["year"] = frame.index.year
+
+    g = frame.groupby("year")["n"]
+    out = pd.DataFrame(
+        {
+            "sessions": g.size(),
+            "headlines": g.sum(),
+            "mean": g.mean().round(1),
+            "median": g.median(),
+            "zero_news": g.apply(lambda x: int((x == 0).sum())),
+            "zero_news_share": g.apply(lambda x: float((x == 0).mean())).round(4),
+            "thin_share": g.apply(
+                lambda x: float((x < config.MIN_HEADLINES_FOR_DISPERSION).mean())
+            ).round(4),
+        }
+    )
+    overall_median = float(out["median"].median())
+    out["vs_median"] = (out["median"] / max(overall_median, 1e-9)).round(2)
+    out["unstable"] = out["vs_median"] < tol
+    out.attrs["overall_median"] = overall_median
+    out.attrs["tolerance"] = tol
+    return out
+
+
 def suggest_window(
     df: pd.DataFrame, ts_col: str = "ts_et", min_per_year: int = 5000, tol: float = 0.25
 ) -> dict:
@@ -430,6 +502,46 @@ def suggest_window(
             "stability on the assembled corpus before freezing."
         ),
     }
+
+
+def corpus_census(
+    headlines: pd.DataFrame, calendar: pd.DatetimeIndex, dedup: bool = True
+) -> dict:
+    """Everything the bounded audit sample was unable to measure.
+
+    The B03 sample was a cluster sample over tickers, so duplication, per-session
+    coverage and company concentration were withheld rather than estimated. All
+    three are properties of the assembled corpus and are computed here, on a
+    census, with `clustered=False`.
+
+    Returns the deduplicated frame alongside the statistics, since the dedup
+    step is what the per-session counts must be computed on -- counting
+    syndicated repeats would inflate n_t and distort S_t.
+    """
+    from src import align
+    from src import data as sdata
+
+    out: dict = {"n_raw": int(len(headlines))}
+
+    if dedup:
+        clean, dup_stats = sdata.dedup(headlines)
+    else:
+        clean, dup_stats = headlines, {}
+    out["duplication"] = dup_stats
+    out["clean"] = clean
+
+    sessions = align.map_date_to_session(clean["ts_utc"], calendar)
+    assigned = clean.assign(session=sessions)
+    out["n_unassignable"] = int(sessions.isna().sum())
+    per_session = assigned.dropna(subset=["session"]).groupby("session").size()
+
+    out["coverage"] = coverage_profile(
+        assigned.dropna(subset=["session"]), calendar, clustered=False, ts_col="ts_utc"
+    )
+    out["per_session"] = per_session
+    out["stability"] = window_stability(per_session, calendar)
+    out["concentration"] = concentration_profile(clean)
+    return out
 
 
 # ------------------------------------------------------------- screening ----

@@ -18,7 +18,10 @@ DATA_PROCESSED = ROOT / "data" / "processed"
 FIGURES = ROOT / "figures"
 REPORT = ROOT / "report"
 
+# The analysis input: filtered to the universe AND deduplicated.
 HEADLINES_PARQUET = DATA_INTERIM / "headlines.parquet"
+# Filtered but not deduplicated, kept so the dedup rate stays checkable.
+HEADLINES_RAW_PARQUET = DATA_INTERIM / "headlines_raw.parquet"
 SCORES_PARQUET = DATA_INTERIM / "scores.parquet"
 MARKET_PARQUET = DATA_INTERIM / "market.parquet"
 PANEL_PARQUET = DATA_PROCESSED / "daily_panel.parquet"
@@ -81,7 +84,16 @@ MARKET_CALENDAR = "NYSE"
 # and log the freeze.
 SAMPLE_START = "2010-01-01"
 SAMPLE_END = "2019-12-31"
-SAMPLE_WINDOW_PROVISIONAL = True
+# FROZEN on the assembled corpus (census: docs/data-audit-fnspid.md §11), before
+# any sentiment-return coefficient was examined. 2,516 sessions; 2 zero-news
+# sessions in ten years; no year falls below the stability tolerance.
+SAMPLE_WINDOW_PROVISIONAL = False
+SAMPLE_WINDOW_FROZEN_ON = "2026-09-09"
+# 2010 carries ~half the median coverage of the other years (median 170 vs 344),
+# which roughly doubles the sampling variance of S_t that year. It clears the
+# tolerance and is kept, but the drop-2010 variant is declared HERE, in advance,
+# as a prespecified sensitivity so it cannot be chosen after seeing a result.
+SENSITIVITY_DROP_FIRST_YEAR = "2011-01-01"
 MIN_TRADING_DAYS = 1250
 
 # ------------------------------------------------- D5 unit of analysis ----
