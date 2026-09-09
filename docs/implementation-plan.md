@@ -1,447 +1,189 @@
-# Project 2 — Implementation Plan
-## Reading the News with a Machine: Does FinBERT's Classification Skill Survive as a Market Signal?
+# Implementation plan: financial headline sentiment
 
-**Budget:** ~15–20 hours over ~1 week. Stage hours sum to 16.5–20.5h.
-**Status of this document:** it is the build specification. Every decision needed to write code is fixed here or explicitly marked ⏳ (resolved once, at Stage 0, then frozen). If something is ambiguous while building, the answer is in §3, §4 or §6 — not in your judgement on the day.
+Date: 2026-09-09.
 
----
+**Status: ready for review; implementation under this plan has not started.** The user accepted research proposals P01-P33, then requested this plan in the chat and in `docs/` before giving the implementation go-ahead. Preparing this plan is documentation work only.
 
-## 1. Objective and research questions
+Related documents: [accepted proposals and decision history](research-review-decision-log.md), [completed scope draft](protocol-revision-draft.md), and [original implementation plan](implementation-plan-original.md).
 
-The project runs in two linked acts. The first has a definite, positive answer; the second is where the honest inference lives; a stated statistical mechanism connects them.
+The original plan was absent from the working tree when this replacement was requested. Its reference copy was recovered by reading Git history at commit `b25bdb90093b7da8b3b68434f00808b6c83ec644`, blob `6f8361794d6cd43b4bbb71e32b5933a7f1cdd2ec`. That copy is historical context, not the current execution specification. No Git state was modified to recover it.
 
-**Act 1 — Validation (measurement).**
-> RQ1: On labeled financial sentences, how much better does FinBERT classify sentiment than a general-purpose lexicon (VADER) and a domain lexicon (Loughran–McDonald), and is the gap statistically significant?
+## 1. Goal and scope
 
-Three scorers form a ladder — generic lexicon → domain lexicon → domain transformer — so the gain decomposes into "domain vocabulary matters" (VADER→LM) and "context matters beyond vocabulary" (LM→FinBERT).
+Build a defensible retrospective study answering:
 
-**Act 2 — Signal (inference).**
-> RQ2: Is daily aggregate headline sentiment associated with *same-day* SPY returns?
-> RQ3: Does it *predict* next-day (t+1…t+5) returns once standard errors are HAC-corrected, the lag family is FDR-controlled, and the result is checked against a block-permutation placebo?
-> RQ4: Does it predict next-day *volatility and volume* — the outcomes where media-sentiment effects are documented (Tetlock 2007)?
+> How do financial sentiment measurements differ in classification quality, and what additional information do they provide about subsequent market outcomes?
 
-**The bridge between acts.** Sentiment scores are noisy measurements of a latent quantity (the information content of the news). Classical errors-in-variables attenuates a regression coefficient toward zero in proportion to measurement noise. So RQ1's answer makes a testable prediction about RQ2/RQ3: on the *identical* specification, the better classifier should produce a larger, better-determined coefficient. That prediction is tested explicitly in Stage 5.
+The core has two acts:
 
-**Expected outcomes, declared in advance** (so the write-up is not written to fit whatever appeared):
-- RQ1: FinBERT wins, clearly. LM beats VADER on financial text.
-- RQ2: clear positive contemporaneous association. This is what efficient markets predict and is a pipeline sanity check as much as a finding.
-- RQ3: weak or null after correction. The deliverable is then a *ruled-out interval*, not a shrug.
-- RQ4: the most plausible positive result in the project, particularly sentiment *dispersion* → volume.
+1. **Independent classification validation:** compare FinBERT, LM, and VADER on independently labeled financial headlines. The primary classification contrast is FinBERT minus LM macro-F1, with paired uncertainty. Report McNemar separately as an accuracy comparison.
+2. **Market inference:** estimate the association between FinBERT daily tone and the next trading day's SPY log return, conditional on a prespecified control set. Report the effect in basis points per sentiment standard deviation, its uncertainty, and the study's precision limits.
 
-**Out of scope, deliberately:** no model training or fine-tuning; no long documents (10-K, transcripts); no cross-sectional panel; no trading-strategy backtest. The report states the reason for the last one (a backtest turns an inference question into a specification search over costs, sizing and rebalancing; economic significance is delivered instead by the bps-per-1σ vs. transaction-cost comparison in §6.5).
+Same-day association is secondary and requires trustworthy intraday timestamps. Other scorers/horizons and volume/range-variance outcomes are explicitly secondary or exploratory. The initial core does not require chronological forecasting, a dashboard, a single-name study, or a trading strategy.
 
----
+Retain the current Python modules, common analysis table, separate expensive scoring step, and existing framework. Correctness repairs do not justify an unrelated restructure.
 
-## 2. System architecture
+## 2. How execution will work
 
-### 2.1 Pipeline
+- Work in **15-30-minute increments**, including reasoning, edits, and focused verification. A phase contains several increments; it is not one long session.
+- Each execution turn addresses one bounded increment. If it cannot finish within the time window, leave a clear checkpoint and stop rather than expanding its scope.
+- After every increment, summarize changed files, checks and results, trade-offs or unresolved issues, and the suggested next increment. Wait for explicit instructions before continuing.
+- A go-ahead to begin this plan starts **B01 only**, unless the user explicitly names another bounded task. It does not authorize automatic execution of the full table.
+- Keep decisions, implementation, and verification separate in the decision log. Do not mark a proposal complete because a plan or function stub exists.
+- No Git writes: no staging, commits, pushes, branch/tag creation, resets, restores, or Git configuration changes. Read-only status, diffs, and history are permitted. The human handles version-control writes.
+- Do not change production credentials, environment files, or CI/CD. Stop for explicit approval before a concrete architecture change. No destructive cleanup is part of this plan.
+- Annotation and full scoring are separate workload dependencies. Do not pretend either necessarily fits one increment. Repeated scoring chunks require their own instructed sessions and durable checkpoints.
 
-```
-  raw news dump                         yfinance
-  (FNSPID or Benzinga)                  (SPY OHLCV+volume, ^VIX)
-        │                                     │
-        ▼                                     ▼
- ┌──────────────────────┐            ┌──────────────────────┐
- │ src/data.py          │            │ src/data.py          │
- │  load → dedup →      │            │  pull → calendar     │
- │  tz-normalize to ET  │            │  hygiene → returns,  │
- │                      │            │  Parkinson, turnover │
- └──────────┬───────────┘            └──────────┬───────────┘
-            │ headlines.parquet                 │ market.parquet
-            ▼                                   │
- ┌──────────────────────┐                       │
- │ src/scoring.py       │                       │
- │  LM | VADER | FinBERT│                       │
- │  (cached, run once)  │                       │
- └──────────┬───────────┘                       │
-            │ scores.parquet                    │
-            ▼                                   │
- ┌──────────────────────────────────────────────┴───────────┐
- │ src/align.py                                              │
- │  close-to-close timestamp map → per-day aggregation →     │
- │  join to market data                                      │
- └──────────────────────────┬───────────────────────────────┘
-                            │ daily_panel.parquet  ◄── THE single analysis table
-                            │                          nothing downstream touches
-                            │                          raw text or raw prices
-              ┌─────────────┴─────────────┐
-              ▼                           ▼
-   ┌────────────────────┐      ┌────────────────────────┐
-   │ src/inference.py   │      │ notebooks/03_signal    │
-   │  NW regressions,   │─────►│ notebooks/05_robustness│
-   │  BH-FDR, placebo   │      │  tables + figures      │
-   └────────────────────┘      └────────────────────────┘
+## 3. Scientific decisions and remaining specifications
 
-  ── independent branch, shares only scoring.py ──
-  PhraseBank ──► src/validate.py (threshold fit, macro-F1, McNemar) ──► notebooks/02_validation
-```
+The accepted direction is settled; the following operational details must be written down before fitting the substantive outcome models. These are specifications to resolve, not a request to accept P01-P33 again.
 
-Two properties this architecture buys, both worth a sentence in the README:
-1. **One analysis table.** Every Act-2 number comes from `daily_panel.parquet`. If a result is wrong, it is wrong in the panel or in the regression — never in an ad-hoc join inside a notebook.
-2. **Scoring runs exactly once.** FinBERT inference is the expensive step; scores are cached keyed by headline hash, so `run_all.py` reproduces every result in minutes without a GPU.
-
-### 2.2 Repository layout
-
-**Repository name: `news-sentiment-signal`.** It names the data (news), the measured quantity (sentiment) and the question (is it a signal), it is readable to someone scanning a GitHub profile, and it carries no coursework numbering — a public repo called `project-2-anything` reads as an assignment rather than a piece of work. Keep a `project-2-` prefix only if all three projects end up as folders inside one portfolio repo; as standalone repos they should be named for what they contain (Project 1 by the same rule would be `volatility-forecast-calibration`, not `project-1-volatility-uq`). The Python package inside stays `src/`, so nothing in §5 changes.
-
-```
-news-sentiment-signal/
-├── README.md                     question, headline figure, 3 findings, repro command
-├── requirements.txt              pinned: transformers, torch, vaderSentiment,
-│                                 statsmodels, pandas, pyarrow, yfinance, matplotlib
-├── run_all.py                    rebuilds panel → all tables → all figures
-├── rescore.py                    the one-off FinBERT pass (not in run_all.py)
-├── config.py                     every constant from §3, imported everywhere
-├── data/
-│   ├── raw/                      news dump + download script; SPY/VIX cache
-│   ├── interim/                  headlines.parquet, scores.parquet, market.parquet
-│   └── processed/                daily_panel.parquet
-├── src/
-│   ├── data.py
-│   ├── scoring.py
-│   ├── align.py
-│   ├── validate.py
-│   ├── inference.py
-│   └── plots.py
-├── tests/
-│   ├── test_alignment.py         the look-ahead firewall (§7, Stage 3)
-│   └── test_scoring.py           scorer range/determinism checks
-├── notebooks/
-│   ├── 01_data_audit.ipynb
-│   ├── 02_validation.ipynb
-│   ├── 03_signal.ipynb
-│   ├── 04_volume_vol.ipynb
-│   └── 05_robustness.ipynb
-├── figures/
-├── report/report.md
-└── future-work.md                where scope-creep ideas go to die quietly
-```
-
-Rule: notebooks contain no analysis logic. They import from `src/`, call, and display. This is what makes `run_all.py` possible and what reads as engineering discipline.
-
----
-
-## 3. Locked decisions
-
-Write these into the report's protocol section before producing any results. Changing one after seeing a result is the look-ahead this design exists to prevent; if you must, log the change and the date in `future-work.md`.
-
-| # | Decision | Value |
+| Area | Starting direction | Must be specified before use |
 |---|---|---|
-| D1 | News source | ⏳ Chosen at Stage 0 from **(A) FNSPID** (HuggingFace, Nasdaq-ecosystem news, intraday timestamps, ticker tags) or **(B) Kaggle "Daily Financial News for 6000+ Stocks"** (Benzinga headlines, timestamps, ticker tags). Criteria in priority order: usable intraday timestamps with known timezone → coverage/duplication quality → sample length. Verify availability by downloading; do not trust any description of these datasets, including this one |
-| D2 | Fallback if neither passes the timestamp audit | Use the better date-only dataset, map news dated d to trading day **d+1**, and drop the contemporaneous act (RQ2) entirely. Decision deadline: end of day 1 |
-| D3 | Market data | SPY daily OHLCV + volume via `yfinance`; `^VIX` close for context plots only |
-| D4 | Sample window | ⏳ Longest span with stable news coverage; target ≥ 5 years / ≥ 1,250 trading days. Locked at Stage 0 |
-| D5 | Unit of analysis | Market-level: all headlines in the window aggregated per trading day, tested against SPY. Single-name analysis appears only as a robustness spot check |
-| D6 | Timestamp → trading day | Headline stamped s (converted to America/New_York) belongs to trading day t iff s ∈ (close(t−1), close(t)], close = 16:00 ET. News on non-trading days rolls forward into the next trading day's window |
-| D7 | Scorers | **LM**: (pos−neg)/(pos+neg) on Loughran–McDonald word counts, 0 when no hits. **VADER**: `vaderSentiment` compound. **FinBERT**: `ProsusAI/finbert`, P(positive) − P(negative). All in [−1, 1]. Dictionary version and model revision hash pinned in `config.py` |
-| D8 | Daily aggregation | S_t = equal-weighted mean of that day's headline scores; n_t = headline count; d_t = within-day standard deviation of scores, defined only when n_t ≥ 5 (else NaN) |
-| D9 | Minimum coverage | Trading days with n_t = 0 are dropped from all regressions and the count reported. Days with 1 ≤ n_t < 5 are kept for S_t, excluded from d_t specs |
-| D10 | Standard errors | Newey–West (HAC), maxlags = 5, for every regression. maxlags = 10 as sensitivity in Stage 6 |
-| D11 | Lag family | Horizons t+1, t+2, t+3, t+4, t+5, per scorer. Declared now; Benjamini–Hochberg FDR at q = 0.05 applied within each scorer's family |
-| D12 | Placebo | Circular block permutation of the S_t series, block length 21 trading days, 1,000 draws, seed 20260830. Permutation p-value for the t+1 t-statistic |
-| D13 | PhraseBank protocol | All four agreement subsets loaded; headline metric = **macro-F1**; primary comparison on the ≥75%-agreement subset; LM/VADER neutral-band thresholds fit on a stratified 20% split and evaluated on the remaining 80%; FinBERT evaluated on the same 80% |
-| D14 | Classifier comparison test | McNemar (exact binomial variant), paired predictions: FinBERT vs LM (primary), FinBERT vs VADER (secondary) |
-| D15 | Effect-size unit | Every headline coefficient reported as **basis points of next-day return per 1σ move in S_t**, with 95% Newey–West CI, benchmarked against ~5 bps one-way transaction costs |
-| D16 | Seeds & reproducibility | Global seed 20260830 in `config.py`; pinned `requirements.txt`; `python run_all.py` from a clean clone reproduces every table and figure |
+| Validation source | Prefer independently annotated headlines from the selected news collection | Sampling, rubric, annotators, uncertainty, label provenance, and calibration/evaluation separation |
+| Alternative validation | An external benchmark is acceptable if independence from the exact checkpoint's training data is established | Evidence for that independence; PhraseBank is otherwise supplementary |
+| Model comparison | Macro-F1 difference with paired uncertainty; accuracy and McNemar reported separately | Sentence/article cluster unit, resampling settings, class balance, and threshold fitting |
+| News universe | Measure average tone in the chosen collection, not all investor sentiment | Company/source concentration, duplication, availability, coverage stability, and sample window |
+| Primary market model | FinBERT tone at session t versus SPY return from close(t) to close(t+1); two-sided null of zero coefficient | Exact controls and transformations, eligible observations, standardization, and price convention |
+| Control-set starting point | Return, intraday range variance, and log trading volume available at session t, following the short original specification | Freeze the final definitions before examining sentiment-return significance |
+| Inference | Justified HAC with a prespecified bandwidth and sensitivity check | Handling of missing trading sessions and dependence; no automatic claim that retained-row lags equal trading-day lags |
+| Multiplicity | Separate primary claims from enumerated secondary families | Exact family membership, correction and dependence justification; whether RQ4 targets dispersion or a joint null |
+| Timing placebo | Descriptive timing diagnostic | Exact algorithm and output labels; no conditional-null p-value without a justified procedure |
+| Practical absence | A prespecified smallest effect of interest and a precision assessment | Margin and rationale; pointwise versus joint claims; allow inconclusive intervals |
+| Mathematical demonstration | Derive attenuation and its assumptions, then demonstrate behavior under controlled changes | One bounded simulation question, data-generating process, parameter grid, seed, and interpretation |
 
----
+Independent human annotation is an external dependency. Provide a manageable labeling sample and instructions; do not use the evaluated model's own labels as ground truth or describe model-generated labels as independent human judgments. Ideally obtain a second annotator on a subset; if unavailable, report that limitation. Separate calibration and evaluation by unique text or article group before tuning thresholds.
 
-## 4. Data contracts
+Selecting a dataset, window, control transformation, or testing family must not depend on which version gives the desired p-value. If a feasibility audit requires a protocol change, document why and what results had been seen.
 
-Exact schemas. Anything not listed here does not belong in the file.
+## 4. Execution roadmap
 
-**`interim/headlines.parquet`** — one row per deduplicated headline
-| column | dtype | note |
-|---|---|---|
-| `headline_id` | str | sha1 of normalized text + original timestamp |
-| `text` | str | original headline, untouched |
-| `text_norm` | str | lowercased, whitespace/punctuation-collapsed — dedup key only, never scored |
-| `ts_utc` | datetime64[ns, UTC] | source timestamp, timezone made explicit at load |
-| `ts_et` | datetime64[ns, America/New_York] | derived |
-| `tickers` | list[str] | may be empty; used only in the robustness spot check |
+Every row is a planned increment with a 15-30-minute work limit. File lists identify expected touch points, not permission for a broad refactor. `tests/test_inference.py` and `tests/test_validation.py` are small supporting test files if needed, not new application layers. Paths described as planned artifacts do not exist merely because they are listed here.
 
-**`interim/scores.parquet`** — one row per headline, one column per scorer
-`headline_id`, `score_lm`, `score_vader`, `score_finbert` (float32, all in [−1, 1]).
+### Phase A: Specify and audit before substantive analysis
 
-**`interim/market.parquet`** — one row per trading day
-`date` (date), `close_adj`, `ret` (log return), `parkinson` (variance, `(ln(H/L))² / (4 ln 2)`), `volume`, `log_turnover`, `vix_close`.
+| ID | Bounded task | Expected files/artifact | Dependency and completion check |
+|---|---|---|---|
+| B01 | Write the independent-validation protocol: rubric, sampling approach, calibration/evaluation separation, and label provenance | Planned `docs/validation-protocol.md`; decision-log progress entry | Uses accepted scope. Finish with an executable annotation/evaluation procedure and explicit human-labeling requirements; source-specific details may await B03-B04. |
+| B02 | Write the inference protocol: primary model, families, HAC, placebo role, effect scale, practical margin and precision method | Planned `docs/inference-protocol.md` | Every intended claim has an estimand and a corresponding uncertainty procedure. Data-dependent feasibility checks are identified rather than silently assumed. |
+| B03 | Audit one bounded news sample and its documentation; compare a second candidate in another instructed session if needed | `notebooks/01_data_audit.ipynb`; source notes | Check publication versus update/collection time, timezone evidence, duplication, company/source concentration, and coverage. Output verified facts and unknowns, without return-significance comparisons. |
+| B04 | Select and record the feasible universe/window; identify and pin actual source/model/dictionary artifacts as available | `config.py`; data-audit records and provenance documentation | Depends on B03. Values must correspond to inspected/downloaded artifacts, not invented identifiers. If provenance remains unresolved, record it and stop dependent scoring. |
+| B05 | Specify the exact timing and missing-data contract; review whether any interface change is needed | Timing section of the protocol; relevant `src/data.py` / `src/align.py` interfaces reviewed | Define actual closes, date-only mapping, sample edges, missing rows, and full-calendar lags. Any required architecture decision stops here before implementation. |
 
-**`processed/daily_panel.parquet`** — one row per trading day in the locked window; **the only input to Act 2**
-| column | note |
+### Phase B: Repair timing in isolated patches
+
+| ID | Bounded task | Expected files/artifact | Dependency and completion check |
+|---|---|---|---|
+| B06 | Correct contemporaneous controls being shifted after zero-news exclusions | `run_all.py`, relevant function in `src/inference.py`, focused inference test | Depends on B05. If Tuesday has no news, Wednesday still uses Tuesday's market controls. Preserve the complete calendar through feature construction. |
+| B07 | Use actual session closes, including half-days | `src/align.py`; calendar helper in `src/data.py` if necessary; `tests/test_alignment.py` | Depends on B05 and any required approval. Verify a headline after a 13:00 close moves to the next session; retain normal-close, weekend, holiday, and DST cases. |
+| B08 | Protect sample boundaries and missing market sessions | `src/align.py`, relevant market loading checks, alignment tests | Depends on B06-B07. Pre-window history cannot accumulate on day one; missing prices cannot silently make a one-day lead mean two trading sessions. Split into two increments if needed. |
+| B09 | Implement the date-only fallback if the audit selects it | Relevant `config.py`, loading/alignment path, `run_all.py`, focused tests | Conditional on B03-B05. Confirm deferred availability mapping and absence of RQ2 output. If unused, record that status rather than claim the currently inert flag works. |
+
+### Phase C: Prepare validation and reliable scoring
+
+| ID | Bounded task | Expected files/artifact | Dependency and completion check |
+|---|---|---|---|
+| B10 | Resolve the validation-data loader compatibility issue for any retained benchmark | `src/validate.py`; `requirements.txt` only if necessary | Depends on B01. Exercise the chosen supported loading path with a small pinned artifact. Do not run a general dependency upgrade. |
+| B11 | Prepare a small prediction-blind annotation sample and stable split assignments | Data-audit/validation preparation; planned annotation files and rubric | Depends on B01, B03-B04. Unique text/article groups cannot cross calibration/evaluation boundaries. Hand off labels to the user/annotator; the labeling workload is not declared complete here. |
+| B12 | Expose FinBERT class probabilities or argmax predictions alongside the continuous tone score | `src/scoring.py`, `src/validate.py`, focused scorer tests | Depends on an approved contract if the core API changes. Verify class-label mapping and that neutral probability is retained when deriving classification predictions. |
+| B13 | Add scoring-provenance checks and incompatible-cache detection | `src/scoring.py`, `rescore.py`, relevant metadata | Depends on B04 and an approved cache-format proposal if needed. Changing a scorer artifact or setting must not silently reuse incompatible scores. |
+| B14 | Add batch checkpoints and interruption-safe resumption to the existing scoring workflow | `src/scoring.py`, `rescore.py`, focused cache tests | Depends on B13. A tiny interrupted run resumes completed work correctly and produces the same final scores as an uninterrupted run. No full corpus run yet. |
+| B15 | Implement paired classification uncertainty and consistent subset handling | `src/validate.py`, `tests/test_validation.py` | Depends on B01-B02 and B12. Use synthetic paired predictions with known behavior; check calibration/evaluation separation and label McNemar as an accuracy test. Actual evaluation waits for independent labels. |
+
+### Phase D: Make the panel and inference match the claims
+
+| ID | Bounded task | Expected files/artifact | Dependency and completion check |
+|---|---|---|---|
+| B16 | Reconcile volume naming and the price/context-plot contract | `src/data.py`, `src/align.py`, affected consumers, `src/plots.py` | Depends on an approved data-contract proposal if schemas change. Keep the patch bounded; split naming and context-price repairs into separate increments if necessary. Verify names match formulas and date-aligned prices reach the figure. |
+| B17 | Implement or repair the primary next-day regression on a controlled fixture | `src/inference.py`, focused inference tests | Depends on B02, B06-B08 and B16. Verify target horizon, controls, exclusions, full-calendar meaning, and reported sample size before using real results. |
+| B18 | Implement the declared secondary-family correction and scorer-comparison outputs | `src/inference.py`, selected output assembly | Depends on B02 and B17. Confirm the exact reported family is corrected and comparisons use identical observations. A superiority claim requires paired uncertainty; side-by-side t-statistics are insufficient. Split a formal paired-comparison implementation into its own session if needed. |
+| B19 | Correct the timing diagnostic's algorithm, terminology, and outputs | `src/inference.py`, `run_all.py`, relevant figure annotation | Depends on B02. Demonstrate the specified transformation on a small known series; no assumption-free or valid conditional-null p-value claim is attached to a descriptive shuffle. |
+| B20 | Implement standardized effects, precision reporting, and permitted null interpretations | `src/inference.py`, result tables and focused checks | Depends on B02 and B17. Verify bps conversion and interval endpoints; distinguish practical-smallness from an inconclusive interval. Remove profitability conclusions based only on a cost threshold. |
+
+### Phase E: Demonstrate the mathematics and run bounded analysis
+
+| ID | Bounded task | Expected files/artifact | Dependency and completion check |
+|---|---|---|---|
+| B21 | Write the selected derivation and a compact simulation specification; implement the simulation in a separate instructed session if needed | Planned `docs/mathematical-appendix.md`; a small reproducible simulation artifact using the existing project structure | Depends on B02. Show attenuation assumptions and the scaling counterexample; any simulated coverage claim is checked against the known generating process. Label simulated quantities clearly. |
+| B22 | Run a small scoring pilot and extrapolate compute/storage requirements | Existing `rescore.py`; timing/provenance notes | Depends on B04 and B12-B14. Verify actual artifact identities, complete score coverage, truncation behavior, and recovery before scaling. Present measured runtime and a bounded next chunk. |
+| B23 | Score one explicitly bounded, resumable portion of the selected corpus | Existing scoring workflow and approved local cache | Depends on B22. Preserve complete daily headline sets for any analyzed days. Stop at a durable checkpoint. Repeat only in later instructed increments until the chosen corpus is covered. |
+| B24 | Produce the independent classification results | `notebooks/02_validation.ipynb`, classification tables/figures | Depends on B11 labels, B12 and B15. Check label provenance, frozen thresholds, paired intervals, class balance, and agreement reporting. If labels are unavailable, report that dependency; do not substitute evaluated-model labels. |
+| B25 | Produce the core daily panel and primary market results | Existing panel workflow, `notebooks/03_signal.ipynb`, primary tables/figures | Depends on completed required scoring, timing repairs, and B17-B20. Verify availability cutoffs, analysis counts, outcome horizon, precision, and absence of predetermined result text. Secondary empirical analyses use a separate instructed session. |
+
+### Phase F: Reproduce and present the finished core
+
+| ID | Bounded task | Expected files/artifact | Dependency and completion check |
+|---|---|---|---|
+| B26 | Integrate the selected Act 1 and Act 2 outputs into the documented reproduction path | `run_all.py`, validation integration, existing notebooks as needed | Depends on B24-B25. One documented workflow produces every promised core output from its stated inputs. Separate expensive scoring from inexpensive result reproduction. Split integration changes if they exceed the increment. |
+| B27 | Write evidence-based captions, the short report, and the README | `src/plots.py`, `report/report.md`, `README.md`, mathematical appendix | Depends on actual results. Match every claim to an output; use accurate tone/dispersion/variance terminology and distinguish association, uncertainty, and limitations. Edit one coherent presentation slice per session. |
+| B28 | Perform one clean-directory reproduction check and reconcile the progress log | Prepared clean working directory; documented commands; decision log | Depends on B26-B27. Use a file copy or a human-prepared clone, not Git write commands. Run the promised workflow with documented inputs; report missing prerequisites and actual outputs. Do not claim a clean run if labels/data/artifacts are unavailable. |
+
+## 5. Architecture approval gates
+
+The following are potential contract changes to evaluate during the named increments, not architecture implementations authorized by this document. Prefer a bounded repair within the current interfaces where it correctly solves the problem.
+
+| Gate | Current approach | Candidate change and purpose | Files/areas to review |
+|---|---|---|---|
+| Calendar handoff, B05/B07 | Session dates are passed around and a helper constructs a fixed close | Supply or obtain actual exchange closes without introducing a new calendar layer; if a core signature must change, present it first | `src/data.py`, `src/align.py`, `run_all.py`, alignment tests |
+| Classification interface, B12 | `score()` exposes a scalar tone score; classification needs more information | Add a probability/prediction path while retaining the scalar path, so Act 1 can use actual class predictions | `src/scoring.py`, `src/validate.py`, scorer/validation tests |
+| Cache provenance, B13-B14 | Headline-keyed scores lack settings/version identity and durable batch progress | Add provenance validation and resumable batch writes to the existing local cache; no new cache service | `src/scoring.py`, `rescore.py`, local cache metadata and tests |
+| Panel contract, B16 | Volume is named turnover; the context figure expects a price absent from the panel | Propose a consistent field mapping and aligned price input with a bounded consumer update | `src/data.py`, `src/align.py`, `src/inference.py`, `src/plots.py`, `run_all.py`, affected tests |
+
+Before changing a core contract, present the concrete current behavior, proposed behavior, benefit, affected files, compatibility implications, and smallest implementation slice. Then stop and ask: **“Do you want me to proceed with this architecture change?”** Wait for explicit approval. If the proposal consumes the session, implementation belongs to a later instructed increment.
+
+General acceptance of the research fixes, or approval to start B01, does not waive these gates. No new database, queue, service, framework, or major application module is proposed.
+
+## 6. Verification and completion criteria
+
+Use meaningful checks tied to the defect or claim being changed. Documentation edits need link/status/consistency checks, not a new test suite. Code changes get focused relevant tests; broaden testing only for new integration concerns or failures.
+
+The core is complete when:
+
+- Evaluation labels are independently sourced, calibration is separate, and the primary classifier difference has correctly paired uncertainty.
+- Source, window, dictionary, and checkpoint provenance are recorded; the measured collection and its coverage limitations are explicit.
+- Actual session cutoffs, boundaries, missing market rows, and news exclusions cannot silently change the intended horizon.
+- Regression claims match their estimands, samples, inference assumptions, and testing families.
+- Effect intervals support the stated conclusion, including an inconclusive result where appropriate.
+- The mathematical artifact explains assumptions and reproduces its controlled demonstration.
+- The documented reproduction workflow produces all selected outputs from available, documented prerequisites.
+- The README and report state supported results without vocabulary/context causal attribution, investor-disagreement overclaims, or profitability claims from regression slopes.
+
+Do not run a full scoring job or broad environment migration as a side effect of a small fix. Measure workload first. Do not promise a fixed total completion time until data access, annotation effort, and the scoring pilot are known.
+
+## 7. Conditional extensions
+
+After the core is working, separately decide whether to run additional return horizons/scorers, RQ4 volume/range-variance analyses, and the selected robustness exhibits. Define families before inspecting their results. Explain the bounded-score mean/dispersion constraint and describe RQ4 as an extension rather than a direct replication of the cited pessimism result.
+
+Chronological forecasting against a controls-only baseline, a formal additional temporal-resampling procedure, a dashboard, and a single-name study remain optional. A trading-strategy backtest is not required. These conditional proposals were accepted as conditional; they do not expand the initial core automatically.
+
+## 8. Coverage of the accepted proposals
+
+| Proposal(s) | Implementation home |
 |---|---|
-| `date` | trading day t |
-| `n_headlines` | n_t |
-| `s_lm`, `s_vader`, `s_finbert` | S_t per scorer (D8) |
-| `d_lm`, `d_vader`, `d_finbert` | dispersion d_t, NaN when n_t < 5 |
-| `ret`, `ret_lead1` … `ret_lead5` | contemporaneous and lead returns |
-| `parkinson`, `parkinson_lead1` | volatility outcome |
-| `log_turnover`, `log_turnover_detrended`, `log_turnover_detrended_lead1` | volume outcome; detrended = residual from a 63-day rolling mean, **trailing only** |
-| `vix_close` | context/plots |
+| P01: Question and two-act framing | Current scope; B02; B27 |
+| P02-P04: Independent validation, paired metrics, overlapping subsets | B01; B10-B12; B15; B24 |
+| P05: Remove causal classifier-ladder attribution | B15 output labels; B27 |
+| P06-P07: Conditional attenuation argument and valid scorer-effect comparison | B02; B18; B21; B27 |
+| P08: Correct the temporal placebo | B02; B19; optional formal procedure only if justified |
+| P09-P10: Testing families and interval scope | B02; B18; B20; B27 |
+| P11-P14: Closes, gaps, boundaries, timestamp provenance, date-only fallback | B03-B09 |
+| P15: Meaning of prediction and horizon | B02; B17; B25; B27 |
+| P16: Conditional chronological forecast evaluation | Section 7; not required for the core |
+| P17: Model availability and retrospective interpretation | B04; B22; B27 |
+| P18-P19: Precision, practical absence, economic interpretation | B02; B20; B25; B27 |
+| P20-P22: Corpus meaning, dispersion, outcome naming | B03-B04; B16; B27; RQ4 branch in Section 7 |
+| P23-P25: Open outcomes, supported captions, transparent corrections | Every increment's log; B02; B27 |
+| P26: Complete reproduction | B26; B28 |
+| P27: Classification predictions | B12 |
+| P28: Cache identity and resumption | B13-B14; B22-B23 |
+| P29: Context-figure contract | B16 |
+| P30: Loader compatibility | B10 |
+| P31: Resolve source/window/artifact metadata | B03-B04; B22 |
+| P32: Mathematical demonstration | B21 |
+| P33: Narrow scope, presentation, realistic workload | Sections 1-2 and 7; B22; B27 |
 
-Every lead column is constructed by a single shift in `align.py` and nowhere else. This is deliberate: leads are the one place a look-ahead bug can hide in plain sight.
+## 9. Current stopping point
 
----
+Completed before this plan: the research review, proposal log, acceptance record, and initial scope draft. Completed now: this implementation plan and its documentation links/reference copy. None of B01-B28 is marked implemented by writing this document.
 
-## 5. Module contracts
-
-Write these signatures first, then fill them in.
-
-**`src/data.py`**
-```python
-load_news(path, source: Literal["fnspid","benzinga"]) -> pd.DataFrame   # → headlines schema
-dedup(df, near_dupe=True) -> tuple[pd.DataFrame, dict]                  # returns df + dedup stats
-load_market(start, end) -> pd.DataFrame                                 # → market schema
-```
-`dedup` removes exact `text_norm` matches within a 3-day window; near-duplicate matching uses token-set overlap ≥ 0.9. It returns the counts so the report can quote a dedup rate.
-
-**`src/scoring.py`**
-```python
-class Scorer(Protocol):
-    name: str
-    def score(self, texts: list[str]) -> np.ndarray: ...   # shape (n,), values in [-1, 1]
-
-LMScorer(dict_path)      # word counts
-VaderScorer()
-FinbertScorer(batch_size=32, max_length=64)                # truncation is safe: headlines
-score_all(headlines_df, cache_path) -> pd.DataFrame        # hash-keyed cache, skips scored rows
-```
-
-**`src/align.py`**
-```python
-map_to_trading_day(ts_et: pd.Series, calendar: pd.DatetimeIndex) -> pd.Series   # D6, the firewall
-aggregate_daily(scores_df, headlines_df, calendar) -> pd.DataFrame              # D8/D9
-build_panel(daily_scores, market) -> pd.DataFrame                               # + leads → panel schema
-```
-
-**`src/validate.py`**
-```python
-fit_thresholds(scores, labels) -> tuple[float, float]        # neutral band, on the 20% split only
-evaluate(scores, labels, thresholds) -> dict                 # accuracy, macro-F1, confusion
-mcnemar_test(pred_a, pred_b, truth) -> tuple[float, float]   # statistic, exact p-value
-```
-
-**`src/inference.py`**
-```python
-nw_ols(y, X, maxlags=5) -> RegressionResults                 # statsmodels HAC
-lag_family(panel, scorer, horizons=(1,2,3,4,5)) -> pd.DataFrame   # coef, NW se, t, p, BH-q
-permutation_pvalue(panel, scorer, horizon=1, n=1000, block=21, seed=SEED) -> float
-effect_size_bps(coef, se, sigma_s) -> tuple[float, float, float]  # point + 95% CI, in bps per 1σ
-```
-
-**`src/plots.py`** — one function per numbered figure in §8. No plotting code anywhere else.
-
----
-
-## 6. Statistical specifications
-
-Exact regressions. Fit with `nw_ols`, D10 standard errors, every time.
-
-**6.1 Contemporaneous (RQ2)** — one per scorer
-```
-ret_t = α + β·S_t + φ·ret_{t−1} + γ·parkinson_{t−1} + δ·log_turnover_{t−1} + ε_t
-```
-Reported as association, not causation, in that language.
-
-**6.2 Predictive (RQ3)** — one per scorer per horizon h ∈ {1…5}
-```
-ret_{t+h} = α + β_h·S_t + φ·ret_t + γ·parkinson_t + δ·log_turnover_t + ε_t
-```
-Controls are momentum/reversal, volatility, attention. The specification is deliberately short: a kitchen-sink control set is a specification search wearing a lab coat. BH-FDR (D11) is applied across the five β_h within each scorer. The placebo (D12) is run on β_1.
-
-**6.3 Attenuation comparison (the bridge)**
-Run 6.2 at h = 1 with `s_finbert`, then with `s_lm`, identical otherwise. Compare coefficient magnitude and t-statistic. Prediction from errors-in-variables: FinBERT's |β| is larger and its standard error relatively smaller.
-Secondary exhibit: both scores in one regression. Expect multicollinearity to blur the result — report the correlation from Stage 4 alongside it and say so rather than treating a muddy horse race as evidence of anything.
-
-**6.4 Volume and volatility (RQ4)** — the act most likely to yield a positive result
-```
-parkinson_{t+1}      = α + β₁·S_t + β₂·|S_t| + β₃·d_t + φ·parkinson_t + ε_t
-turnover_dt_{t+1}    = α + β₁·S_t + β₂·|S_t| + β₃·d_t + φ·turnover_dt_t + γ·|ret_t| + ε_t
-```
-`|S_t|` captures intensity irrespective of direction; `d_t` is disagreement across the day's headlines. These are estimated for FinBERT and LM; VADER only if it survives the cut list.
-
-**6.5 Effect-size translation (D15)**
-For every headline β: `bps per 1σ = β × sd(S_t) × 10,000`, with the CI transformed identically. A null is then reported with content: *"effects larger than X bps per 1σ are ruled out at 95% — below one-way transaction costs."*
-
-**6.6 Tests used, and what each is for**
-| Test | Where | Answers |
-|---|---|---|
-| McNemar (exact) | Act 1 | Is the classifier gap real, given the predictions are paired on the same sentences? |
-| Newey–West HAC | Every regression | Standard errors under serial correlation and heteroskedasticity |
-| Benjamini–Hochberg | Lag family | What share of declared discoveries are false, across 5 correlated tests? |
-| Circular block permutation | β_1 | Assumption-free null that preserves S_t's own autocorrelation |
-
----
-
-## 7. Build stages
-
-Each stage ends with a **Done when** that is checkable, not a feeling.
-
-### Stage 0 — Scaffold, dataset audit, market data (2–2.5h)
-1. Create the §2.2 tree; `config.py` with every §3 constant; pinned `requirements.txt`.
-2. Port from Project 1: SPY pull, calendar hygiene, Parkinson computation.
-3. Download both D1 candidates. For each, in `01_data_audit.ipynb`:
-   - plot the intraday distribution of timestamps (a spike at 00:00 means date-only wearing a timestamp column);
-   - confirm the source timezone from documentation, not inference;
-   - headlines per year, and per trading day (mean, median, share of zero-news days);
-   - exact and near-duplicate rate;
-   - ticker-tag sanity on a 50-row sample.
-4. **Lock D1 and D4.** Fill the ⏳ cells. If neither passes, invoke D2 now.
-5. Download the Financial PhraseBank; record citation and license.
-
-**Done when:** §3 has no placeholders, `headlines.parquet` and `market.parquet` exist for the locked window, and the audit notebook justifies the choice in writing.
-
-### Stage 1 — Scoring pipeline (2.5–3h)
-1. Implement the three `Scorer` classes against the §5 protocol. Get the LM master dictionary from the Loughran–McDonald SRAF site.
-2. **Time FinBERT on 1,000 headlines and extrapolate before launching the full pass.** If projected CPU time exceeds ~2h, shorten the *window* (D4) and record it. Never subsample headlines within days — that biases both S_t and d_t.
-3. Run `rescore.py` → `scores.parquet`, hash-keyed and resumable.
-4. Build the qualitative spot-check table: ~30 hand-picked headlines scored by all three, deliberately including cases where the lexicons should fail — `"company reports increased liability provisions"` (LM-neutral, VADER-negative), `"costs fell sharply"` (word-count-negative, actually positive), `"profit warning smaller than feared"`.
-5. `tests/test_scoring.py`: every score in [−1, 1]; scoring is deterministic across two runs.
-
-**Done when:** all headlines in the locked window are scored by all three scorers, cached, tests pass, and the spot-check table renders.
-
-### Stage 2 — Act 1: validation (2–2.5h)
-1. Load PhraseBank, all four agreement subsets. Stratified 20/80 split, seeded.
-2. Fit LM and VADER neutral bands on the 20% (maximize macro-F1). FinBERT untouched.
-3. Evaluate all three on the 80%: accuracy, macro-F1, per-class confusion matrices.
-4. McNemar per D14. Report the disagreement cells (b, c) alongside the p-value.
-5. Repeat the headline comparison on each agreement subset — does the FinBERT–LM gap widen as label quality rises?
-6. Write the limitation now, while it is fresh: PhraseBank sentences are annotated from an investor's perspective and FinBERT was fine-tuned on related financial text, so a shared-provenance advantage cannot be ruled out. Better in your limitations section than in a reader's question.
-
-**Done when:** Table 1 and Figure 1 exist, and you can state in one sentence: "FinBERT exceeds LM by X macro-F1 points (McNemar p = …); the VADER→LM step contributes Y of the total gain."
-
-### Stage 3 — Alignment and the daily panel (2h)
-1. Implement `map_to_trading_day` per D6 against the NYSE calendar.
-2. **Write `tests/test_alignment.py` before trusting any output.** Required cases:
-   - headline at 15:59 ET on day t → day t;
-   - the same headline at 16:01 ET → day t+1;
-   - Saturday 10:00 ET → the following Monday;
-   - a headline dated on a market holiday → the next trading day;
-   - assertion that no row in `daily_panel` at date t was built from a headline with `ts_et` > close(t).
-3. `aggregate_daily` (D8/D9) → `build_panel` → `daily_panel.parquet`.
-4. EDA in `01_data_audit.ipynb` (extend it): S_t per scorer over time against SPY, with major episodes marked; n_t over time (coverage drift is a named limitation); **ACF of S_t** (its persistence is the written justification for D10 and D12); pairwise correlation of the three daily S_t series.
-
-**Done when:** all alignment tests pass, `daily_panel.parquet` matches the §4 schema exactly, and the panel's row count, n_t = 0 day count, and scorer correlations are recorded in the notebook.
-
-> Note from Stage 3 EDA that changes what you claim later: if `corr(s_finbert, s_lm) > 0.9` daily, the attenuation comparison (§6.3) has little room to separate the scorers. Report it as bounded and inconclusive in that case. Do not redesign the comparison to manufacture a difference.
-
-### Stage 4 — Act 2: inference (3–4h) ← the intellectual core
-1. Run §6.1 for all scorers. This is the pipeline's sanity check as much as a result: if same-day association is absent, something upstream is broken — check alignment before believing it.
-2. Run §6.2 for all scorers × 5 horizons. Assemble the coefficient table: β, NW se, t, raw p, BH q.
-3. Permutation placebo (D12) on β_1 for each scorer.
-4. Attenuation comparison per §6.3, with the Stage 3 correlation quoted next to it.
-5. Effect sizes per §6.5 for every headline coefficient.
-
-**Done when:** `03_signal.ipynb` produces Tables 2–4 and Figure 2 from `daily_panel.parquet` alone — no re-reading of raw text or prices anywhere in the notebook.
-
-### Stage 5 — Volume and volatility (1.5–2h)
-1. Run both §6.4 specifications for FinBERT and LM.
-2. Report the d_t coefficient prominently — disagreement predicting volume is the project's most plausible positive finding, and it is a documented one in the literature.
-3. Note the sample reduction from the n_t ≥ 5 requirement on d_t.
-
-**Done when:** Table 5 and Figure 3 exist, each with a one-sentence verdict.
-
-### Stage 6 — Robustness (1–1.5h)
-Each item is a short section with a one-sentence verdict, not a discussion.
-1. Median instead of mean aggregation (D8 variant).
-2. NW maxlags = 10.
-3. First-half / second-half subperiod split.
-4. Drop days with n_t < 5 from the S_t specifications too.
-5. Single-name spot check: most-covered ticker, its own headlines vs. its own returns.
-
-**Done when:** `05_robustness.ipynb` renders with five verdicts and no result reverses silently.
-
-### Stage 7 — Write-up and polish (3–4h)
-1. **Report, 2 pages:** (i) question and the two-act logic, with the attenuation bridge stated up front; (ii) data — the audit, the D6 timestamp rule, coverage caveats; (iii) Act 1 — the ladder and McNemar; (iv) Act 2 — contemporaneous vs. predictive, FDR, placebo, ruled-out effect sizes; (v) volume/volatility; (vi) limitations — shared provenance of FinBERT and PhraseBank, coverage drift, single market, association not causation, no intraday confirmation; (vii) two sentences on why there is no trading backtest.
-2. **README:** the question in one sentence, the headline figure, three bullet findings, `pip install -r requirements.txt && python run_all.py`, repo map, and one line pointing at `tests/test_alignment.py` as the look-ahead firewall.
-3. Figure pass: consistent style, labeled axes, captions that state the takeaway rather than describing the axes.
-4. Clean-clone run of `run_all.py`.
-
-**Done when:** a stranger gets the finding from the README in 90 seconds and reproduces every figure with one command.
-
----
-
-## 8. Deliverable inventory
-
-Build exactly these. Anything else is scope creep.
-
-| ID | Artifact | Stage |
-|---|---|---|
-| Table 1 | PhraseBank: accuracy, macro-F1 per scorer, per agreement subset; McNemar p | 2 |
-| Table 2 | Contemporaneous regression, all scorers | 4 |
-| Table 3 | Lag family: β_h, NW se, t, p, BH q, for h = 1…5 per scorer | 4 |
-| Table 4 | Effect sizes: bps per 1σ with 95% CI, vs. transaction-cost benchmark | 4 |
-| Table 5 | Volatility and volume regressions | 5 |
-| Figure 1 | Confusion matrices, three scorers side by side | 2 |
-| Figure 2 | **Headline.** Coefficient ± NW CI by horizon (t, t+1…t+5), one panel per scorer, zero line marked, placebo p annotated on h = 1 | 4 |
-| Figure 3 | Sentiment dispersion d_t vs. next-day detrended volume, with fitted line | 5 |
-| Figure 4 | S_t (FinBERT) and SPY price over the sample, episodes marked — context, not evidence | 3 |
-| Exhibit A | The 30-headline qualitative scoring table | 1 |
-
----
-
-## 9. Week layout
-
-| Day | Stages | Hours |
-|---|---|---|
-| 1 | Stage 0 | 2–2.5 |
-| 2 | Stage 1 (start the FinBERT pass early, let it run) | 2.5–3 |
-| 3 | Stage 2 | 2–2.5 |
-| 4 | Stage 3 | 2 |
-| 5 | Stage 4 | 3–4 |
-| 6 | Stages 5 + 6 | 2.5–3.5 |
-| 7 | Stage 7 | 3–4 |
-
-**Checkpoint rule:** if no dataset passes the timestamp audit by the end of day 1, invoke D2 immediately. Do not spend day 2 hunting for better data.
-
----
-
-## 10. Cut list (in order, if over budget)
-
-1. VADER (LM remains the sole lexicon; the ladder loses its bottom rung, Act 1 survives intact).
-2. Horizons t+4 and t+5 (family shrinks to three; FDR still applies).
-3. Single-name spot check and median-aggregation robustness.
-4. The joint horse-race regression (keep the side-by-side attenuation comparison).
-5. The volume outcome (keep the volatility one — it is a single regression on ported code).
-
-**Never cut:** the timestamp audit, `tests/test_alignment.py`, Newey–West, BH-FDR, the permutation placebo, the effect-size CIs, or the limitations section. These are the maturity signals the project exists to send.
-
-**Stretch, only if under budget:** a Streamlit view of S_t against price; scoring a small sample of EDGAR 8-K headlines as an out-of-domain check.
-
----
-
-## 11. Risk register
-
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| News dataset has absent or unreliable intraday timestamps | Medium-high | Two candidates, explicit Stage 0 audit, D2 fallback, day-1 deadline |
-| FinBERT inference too slow on CPU | Medium | Time-and-extrapolate before the full pass; batch + truncate at 64 tokens; shorten the window, never the within-day sample; cache so it runs once |
-| RQ3 comes back null | High, and planned for | Declared in advance; ruled-out-interval framing (§6.5); RQ4 carries the positive finding |
-| FinBERT and LM daily series nearly collinear | Medium | Detected at Stage 3; the attenuation comparison is then reported as bounded — an honest sentence, not a redesign |
-| Duplicate or syndicated headlines inflate n_t and distort S_t | Medium | `dedup` at Stage 0, exact + near-duplicate; dedup rate reported |
-| Coverage drift over the sample (more headlines in later years) | Likely | Plotted at Stage 3, named as a limitation, subperiod split at Stage 6 |
-| Scope creep — transcripts, more tickers, a trading rule | Self-inflicted | §3 is the contract; ideas go to `future-work.md` |
-
----
-
-## 12. Interview ammunition
-
-- **Why Newey–West.** Sentiment is persistent and regression residuals are serially correlated and heteroskedastic; OLS standard errors assume neither, so naive t-statistics overstate significance. The lag length is a bandwidth choice, sensitivity-checked, not a constant handed down from anywhere.
-- **Why Benjamini–Hochberg over Bonferroni.** Bonferroni controls the probability of *any* false positive and sacrifices power badly when tests are correlated — which five adjacent lags certainly are. BH controls the expected *proportion* of false discoveries, the right trade-off for a small exploratory family declared in advance.
-- **Why McNemar.** The classifiers score the *same* sentences, so predictions are paired; McNemar tests the asymmetry of the disagreement cells. Comparing two accuracies as if they came from independent samples discards the pairing and gets the variance wrong — the same error as comparing two forecasts without Diebold–Mariano.
-- **Contemporaneous versus predictive.** News moving prices the same day is what an efficient market predicts; next-day predictability from public headlines is the anomalous claim and therefore carries the heavier evidentiary burden (FDR plus placebo). Knowing which of your two results would be surprising is the domain-maturity signal.
-- **The attenuation bridge.** Sentiment scores measure a latent quantity with error, and classical errors-in-variables shrinks β toward zero in proportion to that error. So a better classifier should show a larger, sharper coefficient on an identical specification — which is what makes Act 1 predictive of Act 2 rather than decorative.
-- **Why block permutation.** Circularly shifting S_t preserves its own autocorrelation while destroying its alignment with returns, giving a null distribution that assumes nothing about the error process. The same instinct as a block bootstrap: never let a resampling scheme destroy the dependence you are worried about.
-- **Why no trading backtest.** A backtest converts an inference question into a search over costs, sizing and rebalancing rules — every one of them p-hackable. The bps-per-1σ comparison against transaction costs delivers economic significance with none of that surface area.
-- **The Loughran–McDonald point.** In general English, *liability*, *tax* and *vice* read negative; in filings they are neutral boilerplate. That is why domain lexicons exist — and *"costs fell sharply"* is why context models beat word counts, because no dictionary sees the verb.
-
----
-
-## 13. Resources
-
-- Tetlock (2007), *Giving Content to Investor Sentiment* — the canonical media-sentiment paper; §6.4 mirrors its outcome variables. Working-paper version free online.
-- Loughran & McDonald (2011), *When Is a Liability Not a Liability?* — the domain-lexicon argument; dictionary free from the authors' SRAF site.
-- Malo et al. (2014) — Financial PhraseBank; dataset on HuggingFace (`financial_phrasebank`).
-- Araci (2019), *FinBERT* (arXiv); model at `ProsusAI/finbert`.
-- FNSPID (paper + HuggingFace dataset) and the Kaggle Benzinga headline dataset — the two D1 candidates.
-- `statsmodels`: `OLS.fit(cov_type="HAC", cov_kwds={"maxlags": 5})`; `stats.multitest.multipletests(method="fdr_bh")`; `stats.contingency_tables.mcnemar`.
-- Newey & West (1987); Benjamini & Hochberg (1995) — read for the idea, use the library.
+**Next action after the user's go-ahead: B01, the independent-validation protocol, then stop.** No analysis-code changes, data acquisition, scoring, architecture implementation, or Git writes are authorized by the current planning-only request.

@@ -38,6 +38,39 @@ def save(fig: plt.Figure, name: str, directory: Path = config.FIGURES) -> Path:
     return path
 
 
+def figure_timestamp_audit(profiles: dict[str, pd.Series], verdicts: dict[str, str] | None = None) -> plt.Figure:
+    """Stage 0: headlines by hour-of-day (ET), one panel per candidate dataset.
+
+    The plan's first audit check, drawn. A date-only dump wearing a timestamp
+    column shows as a single spike -- usually at midnight -- and is disqualified
+    from D1 no matter how good the rest of it looks.
+
+    `profiles` maps candidate name -> `audit.hour_histogram(df)`.
+    """
+    use_style()
+    n = len(profiles)
+    fig, axes = plt.subplots(1, n, figsize=(5.0 * n, 3.8), sharey=False)
+    axes = np.atleast_1d(axes)
+    close_hour = config.MARKET_CLOSE_ET.hour
+    for ax, (name, hist) in zip(axes, profiles.items()):
+        share = hist / max(hist.sum(), 1)
+        ax.bar(hist.index, share, width=0.85, color="#1f4e79")
+        ax.axvline(9.5, color="#2e7d32", lw=1, ls="--")
+        ax.axvline(close_hour, color="#c0392b", lw=1, ls="--")
+        ax.annotate("open", xy=(9.5, ax.get_ylim()[1]), fontsize=7, color="#2e7d32",
+                    ha="right", va="top", rotation=90)
+        ax.annotate("close", xy=(close_hour, ax.get_ylim()[1]), fontsize=7, color="#c0392b",
+                    ha="right", va="top", rotation=90)
+        ax.set_xticks(range(0, 24, 3))
+        ax.set_xlabel("hour of day (ET)")
+        title = name if verdicts is None else f"{name}\n{verdicts.get(name, '')[:60]}"
+        ax.set_title(title, fontsize=9)
+    axes[0].set_ylabel("share of headlines")
+    fig.suptitle("Are the timestamps real? A single spike means date-only", y=1.04)
+    fig.tight_layout()
+    return fig
+
+
 def figure1_confusion(results: dict[str, dict]) -> plt.Figure:
     """Figure 1: confusion matrices, three scorers side by side."""
     use_style()
