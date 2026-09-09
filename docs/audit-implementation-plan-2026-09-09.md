@@ -4,7 +4,60 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
-**R05 complete (latest). R01a–R01d, R02, R03c, R04a and R04b complete.**
+**R03a complete (latest). R01a–R01d, R02, R03c, R04a, R04b and R05 complete.**
+
+*R03a (A12, with A11's missing article-group ID)* — wrote the
+[dedup lineage contract](dedup-lineage-contract.md), specifying `source_row_id`,
+a total representative ordering, unioned ticker tags, the re-anchored exact
+window, the corrected blocking boundary and a full lineage artifact. All five
+defects were reproduced against the running code and then **quantified on the
+real 1.4M-row raw corpus**, read-only; nothing was written and no artifact
+replaced.
+
+What the measurement found, and it changes how R03b/R03d should be judged:
+
+- **The saved artifact is reproducible.** `dedup()` on the pinned raw corpus
+  returns the saved clean corpus exactly — 869,205 rows, symmetric difference
+  **0** — and repeats identically. An earlier probe in this increment suggested
+  otherwise; it had sorted with `kind="stable"` while `dedup` uses pandas'
+  default, and that conclusion is withdrawn.
+- **But the output is not order-invariant.** Permuting the raw corpus changes
+  2,363 headline ids and changes the retained ticker tags of **93,552 of
+  868,023 surviving headlines (10.78%)**. `dedup` sorts on `ts_utc` with an
+  unstable quicksort, and in a date-only corpus every same-day duplicate group
+  is a tie on that key. Reproducibility currently rests on the raw file's row
+  order, not on any stated rule.
+- **Tag loss is large:** 501,957 of 663,074 distinct (group, ticker) pairs are
+  destroyed — **75.7%** — across 96.8% of multi-row groups.
+- **Its effect on the universe justification is negligible and benign.**
+  Recomputing with tags unioned moves the top-10 share from 2.09% to **2.03%**
+  and effective names from 1,839 to **1,810**. Concentration is marginally
+  *lower*, so the D4 decision is unaffected. Reported because the check had to
+  be reported whichever way it came out.
+- **The published exact/near split is wrong.** Re-anchoring gives
+  **539,087 exact / 4,245 near**, not 431,602 / 111,717 — **96.2% of the
+  reported near count is actually exact duplication** — while corpus membership
+  moves by only **93 headlines (0.011%)**.
+- **The boundary defect is confirmed and bites at the configured threshold.**
+  An exact integer formulation gives 20 at `overlap=0.90` where `ceil` gives 21,
+  omitting **14,494 rows** at exactly 20 unique tokens; exposure rises from
+  5.956% to 6.982%.
+- **`headline_id` is a group key, not a row key** — 518,332 raw rows share an id
+  with another row — so lineage needs the new `source_row_id`.
+
+The contract also separates two things the audit had merged: **dedup clusters**
+(windowed, corpus-wide, for lineage and tag union) and **article groups**
+(unwindowed, computed within the drawn annotation sample at R06a, for leakage
+control and the bootstrap resampling unit). Leakage only matters between the
+calibration and evaluation parts, both subsets of the ~800-item sample, so
+all-pairs comparison there is exact and instant and no corpus-wide clustering
+is needed.
+
+Verification: documentation and read-only measurement only. No production code
+changed — **199 passed, 7 skipped**, unchanged. §7 of the contract asks for four
+decisions before R03b implements it.
+
+### Previous checkpoint: R05
 
 *R05 (A10/A09)* — six amendments to the two frozen protocols, plus one deferral, all
 made while **no text had been scored, no labels collected, no panel built and no
@@ -188,8 +241,8 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | R01c — checkpoint contract | Write exact proposal for versioned data/provenance commit and recovery within the existing cache | Defined interruption states, migration behavior and no-GPU read-validation path | B13/B14 contract checkpoint; A02/A15 |
 | R01d — durable recovery | Implement approved checkpoint contract; inject failures at file-write/commit boundaries | Every interrupted state recovers the last consistent checkpoint or refuses explicitly; resumed scores equal uninterrupted scores | R01c; A02 |
 | R02 — assembly contract | `data/raw/download.py` plus data tests: raw/clean destination separation, pinned revision, stream digest/length, atomic final publication | Small mocked download cannot overwrite the clean corpus as raw; wrong digest refuses publication; offline deterministic test | B04/B26; A05 |
-| R03a — dedup lineage | Specify representative ordering, group lineage and unioned ticker tags; quantify impact on small fixtures | Repeated multi-ticker stories retain provenance and correct tags; grouping semantics explicit | B04/B11; A12 |
-| R03b — dedup repairs | `src/data.py`, `tests/test_data.py`: later exact-repeat windows, stable ties, 20-token exposure boundary | Repeated clusters handled correctly with near-dedup on/off; boundary exposure correct | R03a; A12 |
+| ✅ R03a — dedup lineage | **Done 2026-09-09** — [dedup lineage contract](dedup-lineage-contract.md). Representative ordering, `source_row_id`, group lineage, unioned tags, re-anchored exact window, corrected blocking boundary; dedup clusters separated from article groups | Impact quantified on the real corpus rather than fixtures: 75.7% of (group, ticker) pairs destroyed; exact/near split wrong by 96.2% of the near count; membership effect only 93 ids; output not order-invariant (10.78% tag churn). Four decisions requested in §7 | B04/B11; A12 |
+| R03b — dedup repairs | `src/data.py`, `tests/test_data.py`: implement the [dedup lineage contract](dedup-lineage-contract.md) — re-anchored exact window, total representative order, unioned tags, lineage artifact, corrected boundary | The contract's eight acceptance tests in §5, including order invariance under all six permutations of the tied fixture and lineage completeness against the raw row count | R03a; A12 |
 | R03c — census correction | `src/audit.py`, audit tests/docs: derive all counts from one session assignment | Totals reconcile; real saved corpus reports 869,114 assigned headlines and one boundary zero; yearly window decision reviewed without outcome fitting | A06; independent of model setup |
 | R03d — corpus verification checkpoint | Run the repaired raw-to-clean path only after membership effects are reviewable; persist manifest and lineage | Compare IDs/counts against old corpus, explain changes, revalidate coverage and record decision before replacement | R02/R03a–c; required before final annotation draw |
 | R04a — market/calendar repair | `src/data.py`, `src/align.py`, loader/panel tests: calendar before returns, inclusive end handling, explicit warmup | Missing Tuesday makes Wednesday's return undefined; no one-session target spans a gap; final session requested; warmup does not expand analysis dates | Reopen B08, prepare B16; A04 |
