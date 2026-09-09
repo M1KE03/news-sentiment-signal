@@ -10,6 +10,11 @@ data/interim/*
 data/processed/*
 !data/processed/.gitkeep
 
+# data/annotation/ is deliberately NOT ignored. The labels are the study's own
+# experimental data -- a human-hours artifact that no amount of recomputation
+# reproduces -- so the sample frame, the split assignment and the labels are
+# tracked. See docs/validation-protocol.md section 6.
+
 # Figures are committed: the README shows the headline one.
 !figures/
 

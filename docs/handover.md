@@ -142,7 +142,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | ID | Task | Status | Notes |
 |---|---|---|---|
 | B10 | PhraseBank loader compatibility | ⬜ | `datasets==4.0.0` removed dataset scripts and `trust_remote_code`; `src/validate.load_phrasebank` will not run as pinned. Needed only if the §2 fallback is used |
-| B11 | Prediction-blind annotation sample | ⬜ | Blocked on corpus assembly. **External dependency: human labelling** |
+| B11 | Prediction-blind annotation sample | ✅ | **R06a, 2026-09-09.** `src/annotate.py`; 800 items drawn into `data/annotation/`, 200 calibration / 600 evaluation by article group, blind export, 60-item pilot. **The only remaining dependency is a human annotator** |
 | B12 | FinBERT class probabilities | ✅ | `scoring.Classifier`, `predict_proba`/`predict`, `validate.predictions_for`; label order checked against the pin at construction |
 | B13 | Scoring-provenance / cache invalidation | ✅ | **Reopened by audit A01, closed again by R01a/R01b.** Fingerprints compare by JSON representation; FinBERT records the revision actually passed to its constructor; `text_sha256` detects changed headlines; a changed scorer fingerprint invalidates that whole cached column |
 | B14 | Batch checkpoints, resumable scoring | ✅ | **Reopened by audit A02, closed again by R01c/R01d.** Scores and provenance in one Parquet file, one replacement commit point, a process-held writer lock, explicit legacy refusal — [checkpoint contract](scoring-checkpoint-contract.md), 30 tests |
@@ -188,8 +188,9 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R03c | A06 | ✅ Census derived from one session assignment |
 | R04a, R04b | A04, A03 | ✅ Returns on the calendar; complete-score gate before aggregation |
 | R05 | A10, A09 | ✅ Six protocol amendments; M7 (HAC spacing) deferred to R07c |
-| R03d | — | ▶ **Next.** Verified rebuild and corpus replacement |
-| R06a, R06b | A11 | ⬜ Blind sample; label ingestion and paired metrics |
+| R03d | — | ✅ Verified rebuild; corpus replaced, `verified_against_pin: true` |
+| R06a | A11 | ✅ Blind sample drawn: 800 items in `data/annotation/`, awaiting an annotator |
+| R06b | A11 | ▶ **Next once labels exist.** Label ingestion and paired metrics |
 | R07a–R07d | A07, A09 | ⬜ Panel fields, primary fixture, HAC spacing, precision contract |
 | R08a–R08c | A08 | ⬜ Return families, paired scorer contrast, timing diagnostic |
 | R09, R10 | A14, A13, A15 | ⬜ Documentation, preflight and pilot readiness |

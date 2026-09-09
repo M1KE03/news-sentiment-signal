@@ -4,7 +4,50 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
-**R03d complete (latest) — the corpus track is closed. R01a–R01d, R02, R03a–R03d, R04a, R04b and R05 complete.**
+**R06a complete (latest). R01a–R01d, R02, R03a–R03d, R04a, R04b, R05 and R06a complete — 13 of 30.**
+
+### R06a — the blind annotation sample is drawn
+
+New `src/annotate.py` and `tests/test_validation.py` (30 tests). The sample is
+**drawn and on disk**: `data/annotation/` holds 800 headlines, 200 calibration
+and 600 evaluation, ready to hand to an annotator. Nothing here needed a label,
+which was the point — the audit found B11 described as "blocked on corpus
+assembly" long after assembly finished, when what actually blocks it is human
+annotation (A11).
+
+- **Frame:** the 869,183-row rebuilt corpus. **Draw:** proportional allocation
+  across 10 strata (year × ticker-tag presence), simple random sampling without
+  replacement inside each cell, seed `20260830`, made once.
+- **Article groups**, computed within the sample by exact all-pairs comparison
+  and **unwindowed** — the relation R03a's contract separated from the dedup
+  cluster. 799 groups; one holds two items. A whole group goes to one part, so
+  a syndicated headline cannot be threshold-fitted on Monday and evaluated on
+  Tuesday.
+- **Blind export:** `headline_id` and `text`, and the export refuses to run if
+  any of a named forbidden list would reach it. Presentation order is shuffled
+  under a **separate** seed (`20260831`), so reshuffling the running order can
+  never disturb which rows were drawn.
+- **`split_assignment.csv` is the authority.** `load_split` re-checks the
+  invariant on the way in and refuses a file where any group spans both parts —
+  protocol §4's stated reason for storing rather than reseeding.
+- **Pilot:** 60 calibration items identified. **Second annotator:** 160 items
+  (20%) for kappa.
+- **`provenance.md`** is written at draw time with annotator, dates, blindness
+  confirmation and deviations left as explicit **TO BE COMPLETED** blanks — a
+  template that pre-fills them produces exactly the reconstructed-after-the-fact
+  record §6 forbids. A test asserts they stay blank.
+
+Two strata collapsed to one level on this corpus and are recorded rather than
+silently dropped: every headline carries a ticker tag (0.00% untagged), and the
+universe is a single publisher by construction.
+
+`data/annotation/` is deliberately **not** gitignored, unlike everything under
+`data/raw|interim|processed`: the labels will be the study's own experimental
+data and the most expensive artifact in the project to reproduce.
+
+**246 tests pass, 0 skipped.**
+
+### Previous checkpoint: R03d
 
 ### R03d — verified rebuild, and a pin that was wrong
 
@@ -356,7 +399,7 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | R04a — market/calendar repair | `src/data.py`, `src/align.py`, loader/panel tests: calendar before returns, inclusive end handling, explicit warmup | Missing Tuesday makes Wednesday's return undefined; no one-session target spans a gap; final session requested; warmup does not expand analysis dates | Reopen B08, prepare B16; A04 |
 | R04b — score-to-panel gate | `src/align.py`, `run_all.py`, alignment tests: unique IDs, complete finite scores, required scorer set, artifact validation | Partial values, missing rows, duplicate IDs and incompatible measurements fail before aggregation | R01, A03/A15 |
 | ✅ R05 — protocol amendments | `docs/inference-protocol.md`, `docs/validation-protocol.md`, decision log | **Done 2026-09-09.** M1 precision approximation, M2 overlapping conclusions and boundaries, M3 classifier multiplicity, M4 group accuracy uncertainty, M5 training-overlap wording, M6 shift domain. **M7 (HAC spacing, A09) deferred to R07c by decision** | A09/A10; no real results required |
-| R06a — blind sample preparation | Existing data/validation modules, new `tests/test_validation.py`, `data/annotation/` artifacts | Stable group IDs and stored calibration/evaluation split; no overlap; prediction-blind exports; 60-item calibration pilot identified | B11; R03/R05; no labels required to build tooling |
+| ✅ R06a — blind sample preparation | **Done 2026-09-09.** New `src/annotate.py`, `tests/test_validation.py` (30 tests), `data/annotation/` artifacts drawn and on disk | 800 drawn (200/600) across 10 strata; 799 unwindowed article groups, none spanning both parts; blind export is id+text only with a forbidden-column guard and a separate order seed; `load_split` re-checks the invariant; 60-item pilot and 160-item second-annotator subset identified; provenance leaves annotator fields blank by design | B11; R03/R05; no labels required to build tooling |
 | R06b — label ingestion and paired metrics | `src/validate.py`, validation tests: validate labels/provenance, fit calibration-only thresholds, paired group bootstrap | Known paired fixtures; identical predictions yield zero difference; all resamples preserve groups/pairing; unusable items counted | B15; R05/R06a; empirical use waits for human labels |
 | R07a — panel fields | Concrete B16 field mapping, then bounded rename of volume/range fields and consumers | Formulas match names; adjusted prices reach context figure; obsolete consumers fail tests | A07; agreed panel contract |
 | R07b — primary fixture | `src/inference.py`, inference tests: explicit eligibility, detrended-volume control, standardization and counts | Hand-checkable design matrix/target; identical retained rows determine fit, SD and bps scale; exclusion ledger reconciles | B17/B20; R04/R05/R07a |

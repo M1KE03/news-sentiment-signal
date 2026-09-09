@@ -205,3 +205,27 @@ TRANSACTION_COST_BPS = 5.0   # ~5 bps one-way, the economic-significance bar
 SEED = 20260830
 
 LABELS = ("negative", "neutral", "positive")
+
+# ------------------------------------------------ B11 / R06a annotation ------
+# The blind evaluation sample. These artifacts are TRACKED in Git, unlike
+# everything under data/raw|interim|processed: the labels are the study's own
+# experimental data and the most expensive thing in the project to reproduce.
+ANNOTATION_DIR = ROOT / "data" / "annotation"
+
+ANNOTATION_N_TOTAL = 800
+ANNOTATION_N_CALIBRATION = 200      # thresholds, rubric refinement, the pilot
+ANNOTATION_N_EVALUATION = 600       # every reported Act 1 number. Touched once.
+ANNOTATION_PILOT_N = 60             # validation protocol section 8
+ANNOTATION_SECOND_FRACTION = 0.20   # independent second annotator, for kappa
+
+# Presentation order is shuffled so neither time order nor source clusters cue
+# the annotator. Distinct from SEED so that reshuffling the running order can
+# never disturb which rows were drawn.
+ANNOTATION_ORDER_SEED = 20260831
+
+# Two headlines are in the same ARTICLE GROUP when they share a normalized text
+# or their token sets overlap at least this much. Unlike the dedup pass this is
+# NOT windowed: a story republished ten days later survives dedup twice but is
+# still one article for leakage purposes, and a group must never straddle the
+# calibration/evaluation boundary.
+ANNOTATION_GROUP_OVERLAP = 0.90
