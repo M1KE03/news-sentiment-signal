@@ -280,7 +280,12 @@ def test_hard_stop_around_commit_and_resumption(tmp_path, mode):
         assert saved.score_lm.notna().sum() == 1
     else:
         assert meta["generation_id"] != old_meta["generation_id"]
-        assert saved.score_lm.tolist() == [-.5, .5, .5, .5]
+        # Assert by id, not position: a checkpoint writes the unrequested cache
+        # rows first and the scored frame after, so on-disk order is not request
+        # order. Only `score_all`'s return follows the input frame's order.
+        by_id = saved.set_index("headline_id")["score_lm"]
+        assert by_id["h0"] == -.5, "the changed-text row must have been rescored"
+        assert by_id[["h1", "h2", "h3"]].tolist() == [.5, .5, .5]
     resumed_heads = heads()
     if mode == "after_text":
         resumed_heads.loc[0, "text"] = "changed text"

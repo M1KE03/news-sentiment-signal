@@ -4,7 +4,42 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
-**R01c specification complete; architecture approval pending (latest).** The [checkpoint contract](scoring-checkpoint-contract.md) proposes embedding provenance in the score Parquet file, one replacement commit point, a process-held writer lock, explicit legacy-cache refusal and a narrow validated reader update in `run_all.py`. It specifies metadata fields, interruption states, recovery and R01d acceptance tests. A disposable Arrow metadata round-trip succeeded; no production code changed. R01d implements the proposal after approval under the existing architecture gate.
+**R02 completed and fixture-tested (latest).** Acquisition now writes the raw
+corpus only: `assemble_corpus` defaults to `HEADLINES_RAW_PARQUET` and raises
+`AcquisitionError` if pointed at `HEADLINES_PARQUET`, so a documented command
+can no longer replace 869,205 deduplicated rows with 1,412,524 undeduplicated
+ones under the same name. The download URL is built from
+`config.NEWS_HF_REVISION` instead of `/resolve/main/`. The stream is hashed as
+it is consumed and checked against the pinned SHA-256 and byte length **before**
+anything is published; a mismatch writes nothing. Publication is atomic, with
+the manifest written after the data so a crash leaves data marked unverified
+rather than the reverse. `--dedup` and `--census` complete the documented
+assembly → dedup → census sequence, and `--dedup` refuses a raw corpus whose
+manifest is absent or records no verification.
+
+Retrospective manifests were written for the existing artifacts recording what
+is actually known: they were produced from `/resolve/main/` with no digest
+computed, so both are marked `verified_against_pin: false`. `--dedup`
+consequently refuses to rebuild the analysis input from them, which is correct —
+a verified corpus requires re-running `--assemble` (~12 min). The existing files
+are not asserted to be wrong; their provenance is simply unproven.
+
+Verification: 10 new offline regression cases in `tests/test_acquisition.py`
+(HTTP replaced by an in-memory CSV), covering the clean-destination refusal,
+default destination, pinned URL, wrong-digest and wrong-length refusal with no
+partial writes, manifest contents, the full assemble → dedup sequence, and the
+two unverified-source refusals. Full suite **181 passed, 7 skipped**. No
+network access, corpus scoring, environment change or Git write.
+
+Also fixed: `tests/test_checkpoints.py::test_hard_stop_around_commit_and_resumption[after_text]`
+asserted cache contents positionally, but a checkpoint writes unrequested cache
+rows before the scored frame, so on-disk order is not request order. The values
+were correct by `headline_id`; the assertion now indexes by id. Only
+`score_all`'s return order follows the input frame.
+
+### Previous checkpoint: R01c
+
+**R01c specification complete; architecture approval pending.** The [checkpoint contract](scoring-checkpoint-contract.md) proposes embedding provenance in the score Parquet file, one replacement commit point, a process-held writer lock, explicit legacy-cache refusal and a narrow validated reader update in `run_all.py`. It specifies metadata fields, interruption states, recovery and R01d acceptance tests. A disposable Arrow metadata round-trip succeeded; no production code changed. R01d implements the proposal after approval under the existing architecture gate.
 
 ### Previous checkpoint: R01b
 

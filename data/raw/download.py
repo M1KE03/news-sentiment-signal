@@ -22,8 +22,12 @@ Every audit statistic must respect that distinction. See docs/data-audit-fnspid.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
+import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -37,7 +41,14 @@ RAW = config.DATA_RAW
 
 FNSPID_REPO = "Zihan1004/FNSPID"
 FNSPID_FILE = "Stock_news/All_external.csv"
-FNSPID_URL = f"https://huggingface.co/datasets/{FNSPID_REPO}/resolve/main/{FNSPID_FILE}"
+# Pinned by revision, not by branch. `/resolve/main/` follows whatever the
+# repository owner last pushed, so a re-run could silently acquire a different
+# artifact from the one recorded in config and in docs/data-audit-fnspid.md.
+FNSPID_REVISION = config.NEWS_HF_REVISION or "main"
+FNSPID_URL = (
+    f"https://huggingface.co/datasets/{FNSPID_REPO}/resolve/"
+    f"{FNSPID_REVISION}/{FNSPID_FILE}"
+)
 
 # The header as published, verified by reading the first bytes of the file.
 FNSPID_COLUMNS = [
@@ -137,14 +148,82 @@ class _CountingStream:
     def __init__(self, raw):
         self._raw = raw
         self.pos = 0
+        self._digest = hashlib.sha256()
 
     def read(self, n: int = -1) -> bytes:
         b = self._raw.read(n)
         self.pos += len(b)
+        self._digest.update(b)
         return b
 
     def readable(self) -> bool:
         return True
+
+    @property
+    def sha256(self) -> str:
+        """Digest of everything consumed so far."""
+        return self._digest.hexdigest()
+
+
+class AcquisitionError(RuntimeError):
+    """Raised when a download cannot be trusted, or would overwrite clean data."""
+
+
+def _refuse_clean_destination(out: Path) -> None:
+    """Assembly writes the RAW corpus. It must never target the analysis input.
+
+    `HEADLINES_PARQUET` holds the deduplicated corpus that the panel is built
+    from. Assembly produces the pre-dedup frame, so pointing it there would
+    replace 869k deduplicated rows with 1.41M undeduplicated ones -- silently,
+    under the same filename, leaving every daily mean weighted by how many
+    tickers each roundup happened to mention.
+    """
+    if out.resolve() == Path(config.HEADLINES_PARQUET).resolve():
+        raise AcquisitionError(
+            f"refusing to write the raw corpus to {out}: that path is the "
+            "deduplicated analysis input. Assembly writes "
+            f"{config.HEADLINES_RAW_PARQUET.name}; run --dedup afterwards to "
+            "produce the analysis input."
+        )
+
+
+def _verify_acquisition(stream, expected_bytes: int | None, expected_sha: str | None) -> dict:
+    """Compare what was actually read against the pinned artifact identity."""
+    got = {"bytes": stream.pos, "sha256": stream.sha256}
+    problems = []
+    if expected_bytes is not None and stream.pos != expected_bytes:
+        problems.append(f"length {stream.pos:,} != pinned {expected_bytes:,}")
+    if expected_sha is not None and stream.sha256 != expected_sha:
+        problems.append(f"sha256 {stream.sha256} != pinned {expected_sha}")
+    got["verified"] = not problems
+    got["problems"] = problems
+    return got
+
+
+def _publish(df: pd.DataFrame, out: Path, manifest: dict) -> None:
+    """Write parquet and its manifest atomically, manifest last.
+
+    The parquet is committed by replace, then the manifest. A crash between the
+    two leaves data with no manifest, which the loader treats as unverified --
+    the safe direction. The reverse order could claim verification for a file
+    that was never written.
+    """
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=out.parent, suffix=".tmp")
+    os.close(fd)
+    try:
+        df.to_parquet(tmp, index=False)
+        os.replace(tmp, out)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    manifest_path(out).write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, default=str), encoding="utf-8"
+    )
+
+
+def manifest_path(artifact: Path) -> Path:
+    return Path(artifact).with_suffix(Path(artifact).suffix + ".manifest.json")
 
 
 def assemble_corpus(
@@ -175,7 +254,8 @@ def assemble_corpus(
     domains = tuple(domains) if domains is not None else tuple(config.NEWS_SOURCE_DOMAINS)
     start = start or config.SAMPLE_START
     end = end or config.SAMPLE_END
-    out = out or config.HEADLINES_PARQUET
+    out = Path(out) if out is not None else config.HEADLINES_RAW_PARQUET
+    _refuse_clean_destination(out)
 
     total = remote_size(url)
     print(f"streaming {total / 1e9:.2f} GB   domains={domains}   window={start}..{end}")
@@ -220,8 +300,37 @@ def assemble_corpus(
             sdata._parse_chunk = original
 
     stats = df.attrs["load_stats"]
-    out.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(out, index=False)
+
+    # Verify the artifact against the pin BEFORE publishing anything. A wrong
+    # digest means the rows in memory did not come from the recorded file, and
+    # nothing derived from them may be written under a trusted name.
+    acq = _verify_acquisition(stream, config.NEWS_FILE_BYTES, config.NEWS_FILE_SHA256)
+    if not acq["verified"]:
+        raise AcquisitionError(
+            "downloaded artifact does not match the pinned identity: "
+            + "; ".join(acq["problems"])
+            + f"\n  url: {url}\n  Nothing was written. Re-check "
+            "config.NEWS_HF_REVISION / NEWS_FILE_SHA256 before retrying."
+        )
+
+    manifest = {
+        "artifact": "headlines_raw",
+        "url": url,
+        "repo": FNSPID_REPO,
+        "revision": FNSPID_REVISION,
+        "file": FNSPID_FILE,
+        "bytes_read": acq["bytes"],
+        "sha256": acq["sha256"],
+        "verified_against_pin": True,
+        "domains": list(domains),
+        "window": [start, end],
+        "rows_read": stats["n_read"],
+        "rows_kept": stats["n_kept"],
+        "rows_bad_timestamp": stats["n_bad_timestamp"],
+        "rows_wrong_source": stats["n_wrong_source"],
+        "deduplicated": False,
+    }
+    _publish(df, out, manifest)
 
     span = (
         f"{df['ts_utc'].min():%Y-%m-%d} .. "
@@ -247,6 +356,97 @@ def assemble_corpus(
     return out
 
 
+def deduplicate_corpus(
+    raw: Path | None = None,
+    out: Path | None = None,
+    near_dupe: bool = True,
+) -> Path:
+    """raw corpus -> deduplicated analysis input, with a manifest (R02).
+
+    This is the second half of the documented acquisition sequence:
+
+        python data/raw/download.py --assemble   # -> headlines_raw.parquet
+        python data/raw/download.py --dedup      # -> headlines.parquet
+        python data/raw/download.py --census     # coverage / concentration
+
+    It exists as a command because the corpus currently in `interim/` was
+    produced by an ad-hoc script, which meant the analysis input could not be
+    rebuilt from a documented path. Deduplication is not cosmetic here: the
+    corpus is ~38% exact and near repeats, mostly one roundup emitted once per
+    tagged ticker, so skipping it weights each editorial act by the number of
+    symbols it happened to mention.
+
+    Refuses to run unless the raw corpus carries a verified acquisition
+    manifest, so a clean artifact cannot be derived from an unverified one.
+    """
+    from src import data as sdata
+
+    raw = Path(raw) if raw is not None else config.HEADLINES_RAW_PARQUET
+    out = Path(out) if out is not None else config.HEADLINES_PARQUET
+
+    if not raw.exists():
+        raise AcquisitionError(f"{raw} not found -- run --assemble first")
+
+    raw_manifest_path = manifest_path(raw)
+    if not raw_manifest_path.exists():
+        raise AcquisitionError(
+            f"{raw} has no acquisition manifest at {raw_manifest_path.name}, so its "
+            "provenance is unverified. Re-run --assemble, or write a manifest by "
+            "hand recording how the file was obtained."
+        )
+    raw_manifest = json.loads(raw_manifest_path.read_text(encoding="utf-8"))
+    if not raw_manifest.get("verified_against_pin"):
+        raise AcquisitionError(
+            f"{raw}'s manifest does not record verification against the pinned "
+            "artifact; refusing to derive the analysis input from it."
+        )
+
+    df = pd.read_parquet(raw)
+    before = len(df)
+    clean, stats = sdata.dedup(df, near_dupe=near_dupe)
+
+    manifest = {
+        "artifact": "headlines",
+        "derived_from": str(raw),
+        "source_manifest": raw_manifest,
+        "deduplicated": True,
+        "near_dupe": near_dupe,
+        "rows_in": before,
+        "rows_out": len(clean),
+        "n_exact_dropped": stats["n_exact_dropped"],
+        "n_near_dropped": stats["n_near_dropped"],
+        "dedup_rate": stats["dedup_rate"],
+        "window_days": stats["window_days"],
+        "overlap_threshold": stats["overlap_threshold"],
+        "share_above_signature_limit": stats.get("share_above_signature_limit"),
+    }
+    _publish(clean, out, manifest)
+    print(
+        f"wrote {out}\n"
+        f"  {before:,} -> {len(clean):,} rows  "
+        f"({stats['dedup_rate']:.1%} removed: {stats['n_exact_dropped']:,} exact, "
+        f"{stats['n_near_dropped']:,} near)"
+    )
+    return out
+
+
+def census_corpus() -> None:
+    """Coverage, duplication and concentration on the assembled corpus."""
+    from src import audit
+    from src import data as sdata
+
+    head = pd.read_parquet(config.HEADLINES_PARQUET)
+    cal = sdata.trading_calendar(config.SAMPLE_START, config.SAMPLE_END)
+    cen = audit.corpus_census(head, cal, dedup=False)
+    print(f"corpus {len(head):,} headlines over {len(cal):,} sessions")
+    print(cen["stability"].to_string())
+    k = cen["concentration"]
+    print(
+        f"\ntickers {k['n_distinct_tickers']:,} | top-10 {k['share_top10']:.1%} "
+        f"| effective names {k['effective_n_tickers']:.0f}"
+    )
+
+
 def fetch_market() -> None:
     """SPY + ^VIX for the locked window -> interim/market.parquet."""
     from src import data as sdata
@@ -266,7 +466,11 @@ def main() -> None:
     ap.add_argument("--slices", type=int, default=24)
     ap.add_argument("--slice-mb", type=int, default=6)
     ap.add_argument("--assemble", action="store_true",
-                    help="stream the full file and write the filtered corpus")
+                    help="stream the pinned file -> headlines_raw.parquet (not deduplicated)")
+    ap.add_argument("--dedup", action="store_true",
+                    help="headlines_raw.parquet -> headlines.parquet (the analysis input)")
+    ap.add_argument("--census", action="store_true",
+                    help="coverage, duplication and concentration on the analysis input")
     ap.add_argument("--market", action="store_true")
     args = ap.parse_args()
 
@@ -275,6 +479,10 @@ def main() -> None:
         fetch_fnspid_sample(n_slices=args.slices, slice_mb=args.slice_mb)
     if args.assemble:
         assemble_corpus()
+    if args.dedup:
+        deduplicate_corpus()
+    if args.census:
+        census_corpus()
     if args.market:
         fetch_market()
     if not config.LM_DICT_PATH.exists():
