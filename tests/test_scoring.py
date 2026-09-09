@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
+import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -294,7 +295,7 @@ def _headlines(n):
 def test_cache_records_the_fingerprint_that_produced_it(tmp_path):
     cache = tmp_path / "scores.parquet"
     scoring.score_all(_headlines(10), cache, [_StubScorer()], verbose=False)
-    meta = json.loads(scoring.meta_path(cache).read_text(encoding="utf-8"))
+    _, meta = scoring.load_cache(cache)
     assert meta["fingerprints"]["lm"] == {"scorer": "lm", "version": "v1"}
     assert meta["n_rows"] == 10
 
@@ -328,7 +329,7 @@ def test_rescore_discards_the_stale_column(tmp_path):
     )
     np.testing.assert_allclose(out["score_lm"], -0.5)
     assert changed.scored == 10
-    meta = json.loads(scoring.meta_path(cache).read_text(encoding="utf-8"))
+    _, meta = scoring.load_cache(cache)
     assert meta["fingerprints"]["lm"]["version"] == "v2"
 
 
@@ -442,9 +443,13 @@ def test_populated_cache_without_identity_is_rejected(
 
     monkeypatch.setattr(scoring, "build_scorers", no_model_loading)
     cache = tmp_path / "scores.parquet"
-    pd.DataFrame({"headline_id": ["h00000"], "score_lm": [0.8]}).to_parquet(cache)
-    if metadata is not None:
-        scoring.meta_path(cache).write_text(json.dumps(metadata), encoding="utf-8")
+    scoring.score_all(_headlines(1), cache, [_StubScorer()], verbose=False)
+    table = pq.read_table(cache)
+    schema_meta = dict(table.schema.metadata)
+    embedded = json.loads(schema_meta[scoring.CACHE_METADATA_KEY])
+    embedded["fingerprints"] = (metadata or {}).get("fingerprints", {})
+    schema_meta[scoring.CACHE_METADATA_KEY] = json.dumps(embedded).encode()
+    pq.write_table(table.replace_schema_metadata(schema_meta), cache)
     before = cache.read_bytes()
     scorer = _StubScorer(value=-0.8)
     with pytest.raises(scoring.IncompatibleCache, match="missing.*fingerprint"):
@@ -456,7 +461,7 @@ def test_populated_cache_without_identity_is_rejected(
 
 def test_empty_score_column_needs_no_previous_identity(tmp_path):
     cache = tmp_path / "scores.parquet"
-    pd.DataFrame({"headline_id": ["h00000"], "score_lm": [np.nan]}).to_parquet(cache)
+    scoring.score_all(_headlines(1), cache, scorers=[], verbose=False)
     scorer = _StubScorer()
     scoring.score_all(_headlines(1), cache, [scorer], verbose=False)
     assert scorer.scored == 1
@@ -524,8 +529,8 @@ def test_changed_text_refuses_reuse_and_invalidates_all_scorers(tmp_path):
 def test_missing_text_identity_is_not_blessed(tmp_path):
     cache = tmp_path / "scores.parquet"
     scoring.score_all(_headlines(2), cache, [_StubScorer()], verbose=False)
-    saved = pd.read_parquet(cache).drop(columns="text_sha256", errors="ignore")
-    saved.to_parquet(cache, index=False)
+    saved = pq.read_table(cache).drop(["text_sha256"])
+    pq.write_table(saved, cache)
     with pytest.raises(scoring.IncompatibleCache, match="text identity"):
         scoring.score_all(_headlines(2), cache, [_StubScorer()], verbose=False)
 

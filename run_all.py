@@ -21,7 +21,7 @@ import sys
 import pandas as pd
 
 import config
-from src import align, data, inference, plots
+from src import align, data, inference, plots, scoring
 
 TABLES = config.REPORT / "tables"
 
@@ -65,7 +65,7 @@ def _check_locked_decisions() -> None:
 def build_panel() -> pd.DataFrame:
     """headlines + scores + market -> the single analysis table."""
     headlines = pd.read_parquet(_require(config.HEADLINES_PARQUET, "run Stage 0"))
-    scores = pd.read_parquet(_require(config.SCORES_PARQUET, "run `python rescore.py`"))
+    scores, _ = scoring.load_cache(_require(config.SCORES_PARQUET, "run `python rescore.py`"))
     market = pd.read_parquet(_require(config.MARKET_PARQUET, "run Stage 0"))
 
     calendar = data.trading_calendar(config.SAMPLE_START, config.SAMPLE_END)

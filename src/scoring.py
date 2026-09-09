@@ -11,11 +11,16 @@ import hashlib
 import json
 import os
 import tempfile
+import errno
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Protocol, Sequence
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 import config
 
@@ -283,27 +288,115 @@ def _configured_fingerprints() -> dict[str, dict]:
 
 
 def meta_path(cache_path: str | Path) -> Path:
-    """Sidecar holding the fingerprint of whatever produced each cached column."""
+    """Legacy sidecar location, used only to diagnose an incomplete old cache."""
     cache_path = Path(cache_path)
     return cache_path.with_suffix(cache_path.suffix + ".meta.json")
 
 
-def _atomic_write_parquet(df: pd.DataFrame, path: Path) -> None:
-    """Write via a temp file and replace, so an interrupted write cannot truncate.
+CACHE_METADATA_KEY = b"sentiment_signal.score_cache"
+CACHE_FORMAT_VERSION = 1
 
-    A long scoring pass checkpoints repeatedly; a partial parquet left behind by
-    a kill signal would be worse than no cache at all, because it would look
-    loadable.
+
+class CacheLockedError(RuntimeError):
+    """Another cooperating process holds the cache's writer lock."""
+
+
+@contextmanager
+def _writer_lock(cache_path: str | Path):
+    """Hold an OS lock from the initial cache read through the final checkpoint.
+
+    The sibling file persists; only the OS lock denotes ownership. Closing the
+    handle (also on process death) releases it, without stale-lock deletion.
     """
+    path = Path(cache_path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    os.close(fd)
+    if os.name not in {"nt", "posix"}:
+        raise RuntimeError(f"cache writer locking unsupported on {os.name}")
+    with open(path.with_suffix(path.suffix + ".lock"), "a+b") as lock:
+        lock.seek(0, os.SEEK_END)
+        if lock.tell() == 0:
+            lock.write(b"\0")
+            lock.flush()
+        lock.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                raise CacheLockedError(f"another scoring writer holds this cache: {path}") from exc
+            raise
+        yield  # the context closes the descriptor and releases the OS lock
+
+
+def _decode_metadata(schema: pa.Schema, path: Path) -> dict:
+    raw = (schema.metadata or {}).get(CACHE_METADATA_KEY)
+    if raw is None:
+        raise IncompatibleCache(
+            f"{path}: legacy cache or missing embedded metadata; rebuild into a new cache path"
+        )
     try:
-        df.to_parquet(tmp, index=False)
+        meta = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeError) as exc:
+        raise IncompatibleCache(f"{path}: invalid embedded metadata JSON") from exc
+    if not isinstance(meta, dict):
+        raise IncompatibleCache(f"{path}: embedded metadata must be an object")
+    if type(meta.get("format_version")) is not int or meta["format_version"] != CACHE_FORMAT_VERSION:
+        raise IncompatibleCache(f"{path}: unsupported cache format version")
+    generation = meta.get("generation_id")
+    try:
+        parsed = uuid.UUID(hex=generation) if isinstance(generation, str) else None
+    except ValueError:
+        parsed = None
+    if parsed is None or parsed.version != 4 or parsed.hex != generation:
+        raise IncompatibleCache(f"{path}: invalid generation_id")
+    if type(meta.get("n_rows")) is not int or meta["n_rows"] < 0:
+        raise IncompatibleCache(f"{path}: invalid n_rows")
+    if not isinstance(meta.get("fingerprints"), dict):
+        raise IncompatibleCache(f"{path}: invalid fingerprint metadata")
+    return meta
+
+
+def _validate_candidate(path: Path, schema: pa.Schema, meta: dict) -> None:
+    """Check the finished footer before the single publication operation."""
+    footer = pq.read_metadata(path)
+    actual_schema = footer.schema.to_arrow_schema()
+    if (footer.num_rows != meta["n_rows"] or not actual_schema.equals(schema)
+            or _decode_metadata(actual_schema, path) != meta):
+        raise IncompatibleCache(f"{path}: candidate footer does not match the intended snapshot")
+
+
+def _atomic_write_parquet(df: pd.DataFrame, path: Path, meta: dict) -> None:
+    """Publish data and provenance together; interruption leaves one generation.
+
+    This does not promise power-loss durability or disk-corruption recovery.
+    """
+    _validate_cache(df, meta, path)
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    metadata = dict(table.schema.metadata or {})
+    metadata[CACHE_METADATA_KEY] = json.dumps(meta, sort_keys=True, allow_nan=False).encode("utf-8")
+    table = table.replace_schema_metadata(metadata)
+    _decode_metadata(table.schema, path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            pq.write_table(table, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _validate_candidate(Path(tmp), table.schema, meta)
         os.replace(tmp, path)
     finally:
-        if os.path.exists(tmp):
+        # A hard stop may leave this temporary behind; readers never promote it.
+        try:
             os.unlink(tmp)
+        except OSError:
+            pass  # cleanup must not replace the original write/replace exception
 
 
 def _canonical_fingerprint(fingerprint: dict) -> dict:
@@ -325,41 +418,65 @@ def load_cache(cache_path: str | Path) -> tuple[pd.DataFrame, dict]:
     """
     cache_path = Path(cache_path)
     cols = [f"score_{n}" for n in config.SCORERS]
-    if cache_path.exists():
-        cache = pd.read_parquet(cache_path)
-    else:
-        cache = pd.DataFrame({"headline_id": pd.Series(dtype="object")})
-    for c in cols:
-        if c not in cache.columns:
-            cache[c] = np.nan
+    try:
+        stream = cache_path.open("rb")
+    except FileNotFoundError:
+        if meta_path(cache_path).exists():
+            raise IncompatibleCache(f"{cache_path}: incomplete legacy pair; rebuild to a new cache path")
+        return pd.DataFrame({"headline_id": pd.Series(dtype="string"),
+                             "text_sha256": pd.Series(dtype="string"),
+                             **{c: pd.Series(dtype="float32") for c in cols}}), {}
+    try:
+        with stream:
+            table = pq.read_table(stream)
+        meta = _decode_metadata(table.schema, cache_path)
+        cache = table.to_pandas()
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as exc:
+        raise IncompatibleCache(f"{cache_path}: unreadable Parquet checkpoint") from exc
+    _validate_cache(cache, meta, cache_path)
+    cache["headline_id"] = cache["headline_id"].astype("string")
+    cache["text_sha256"] = cache["text_sha256"].astype("string")
+    return cache, meta
 
-    mp = meta_path(cache_path)
-    meta = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else {}
-    if not isinstance(meta, dict) or not isinstance(meta.get("fingerprints", {}), dict):
-        raise IncompatibleCache(f"invalid fingerprint metadata in {mp}")
-    fingerprints = meta.get("fingerprints", {})
+
+def _validate_cache(cache: pd.DataFrame, meta: dict, path: Path) -> None:
+    cols = [f"score_{n}" for n in config.SCORERS]
+    missing = set(["headline_id", "text_sha256"] + cols) - set(cache.columns)
+    if missing:
+        raise IncompatibleCache(f"{path}: missing required cache columns {sorted(missing)} (text identity required)")
+    if cache.columns.duplicated().any():
+        raise IncompatibleCache(f"{path}: duplicate cache columns")
+    if meta.get("n_rows") != len(cache):
+        raise IncompatibleCache(f"{path}: n_rows does not match the checkpoint")
+    fingerprints = meta["fingerprints"]
+    for name, fp in fingerprints.items():
+        if name not in config.SCORERS:
+            raise IncompatibleCache(f"{path}: unconfigured scorer {name!r}")
+        try:
+            _canonical_fingerprint(fp)
+        except (ValueError, TypeError) as exc:
+            raise IncompatibleCache(f"{path}: missing or invalid fingerprint for {name}") from exc
     for name in config.SCORERS:
+        if cache[f"score_{name}"].dtype != np.dtype("float32"):
+            raise IncompatibleCache(f"{path}: score_{name} must be float32")
         populated = int(cache[f"score_{name}"].notna().sum())
         recorded = fingerprints.get(name)
         if populated and (not isinstance(recorded, dict) or not recorded):
             raise IncompatibleCache(
                 f"cached {name!r} has {populated:,} values with a missing or invalid "
-                f"fingerprint in {mp}. Their provenance cannot be inferred. "
+                f"fingerprint in {path}. Their provenance cannot be inferred. "
                 "Restore the original metadata or rebuild into a new cache path; "
                 "on_fingerprint_change='rescore' cannot establish unknown provenance."
             )
     populated = cache[cols].notna().any(axis=1)
-    if "text_sha256" not in cache:
-        cache["text_sha256"] = pd.Series(index=cache.index, dtype="string")
     valid_hash = cache["text_sha256"].astype("string").str.fullmatch(r"[0-9a-f]{64}").fillna(False)
     if (populated & ~valid_hash).any():
         raise IncompatibleCache(
-            "cached scores have missing or invalid text identity; rebuild into a new "
+            f"{path}: cached scores have missing or invalid text identity; rebuild into a new "
             "cache path rather than assuming the current text produced old scores"
         )
     if cache["headline_id"].isna().any() or cache["headline_id"].duplicated().any():
-        raise IncompatibleCache("cache must contain unique, non-null headline_id values")
-    return cache, meta
+        raise IncompatibleCache(f"{path}: cache must contain unique, non-null headline_id values")
 
 
 class IncompatibleCache(RuntimeError):
@@ -379,7 +496,7 @@ def score_all(
     **Provenance (B13).** Each scorer publishes a `fingerprint` naming everything
     that changes the number it produces -- model revision and truncation length
     for FinBERT, a hash of the actual word lists for LM. The fingerprint is
-    stored beside the cache. If it no longer matches, the cached column was
+    embedded in the cache. If it no longer matches, the cached column was
     produced by a *different measurement*, and reusing it would silently mix two
     definitions inside one column. That raises `IncompatibleCache` by default;
     `on_fingerprint_change="rescore"` discards the stale column and recomputes
@@ -394,7 +511,14 @@ def score_all(
     one. This matters because the FinBERT pass over the assembled corpus is
     hours long and the plan's time budget assumes it is not repeated.
     """
-    cache_path = Path(cache_path)
+    cache_path = Path(cache_path).resolve()
+    with _writer_lock(cache_path):
+        return _score_all_locked(headlines_df, cache_path, scorers, verbose,
+                                 checkpoint_every, on_fingerprint_change)
+
+
+def _score_all_locked(headlines_df, cache_path, scorers, verbose,
+                      checkpoint_every, on_fingerprint_change):
     if on_fingerprint_change not in {"raise", "rescore"}:
         raise ValueError("on_fingerprint_change must be 'raise' or 'rescore'")
     if checkpoint_every <= 0:
@@ -405,6 +529,7 @@ def score_all(
     heads = headlines_df[["headline_id", "text"]].copy()
     if heads["headline_id"].isna().any() or heads["headline_id"].duplicated().any():
         raise ValueError("headlines must contain unique, non-null headline_id values")
+    heads["headline_id"] = heads["headline_id"].astype("string")
     if not heads["text"].map(lambda value: isinstance(value, str)).all():
         raise ValueError("headline text must be a non-null string")
     heads["text_sha256"] = heads["text"].map(
@@ -500,18 +625,18 @@ def score_all(
 
 
 def _checkpoint(out, cols, cache, cache_path: Path, fingerprints: dict) -> None:
-    """Merge the in-progress scores into the cache and write both files."""
+    """Commit one snapshot containing in-progress scores and their provenance."""
     scores = out[["headline_id", "text_sha256"] + cols].copy()
     for c in cols:
         scores[c] = scores[c].astype("float32")
     merged = pd.concat(
         [cache[~cache["headline_id"].isin(scores["headline_id"])], scores]
     ).reset_index(drop=True)
-    _atomic_write_parquet(merged, cache_path)
-    meta_path(cache_path).write_text(
-        json.dumps(
-            {"fingerprints": fingerprints, "n_rows": int(len(merged))},
-            indent=2, sort_keys=True, allow_nan=False,
-        ),
-        encoding="utf-8",
-    )
+    merged["headline_id"] = merged["headline_id"].astype("string")
+    merged["text_sha256"] = merged["text_sha256"].astype("string")
+    for c in cols:
+        merged[c] = merged[c].astype("float32")
+    _atomic_write_parquet(merged, cache_path, {
+        "format_version": CACHE_FORMAT_VERSION, "generation_id": uuid.uuid4().hex,
+        "fingerprints": fingerprints, "n_rows": int(len(merged)),
+    })
