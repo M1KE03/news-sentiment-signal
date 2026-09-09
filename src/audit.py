@@ -1,211 +1,402 @@
-"""Stage 0: the dataset audit that locks D1 and D4.
+"""Dataset audit (B03). The unit of audit is the **source**, not the file.
 
-SUPERSEDED IN PART -- read before reusing (B03; docs/data-audit-fnspid.md).
+Rewritten after the B03 audit of FNSPID (docs/data-audit-fnspid.md). The earlier
+version applied the intraday gate to a whole file, which is the wrong unit:
+`All_external.csv` concatenates five-plus sub-corpora with different languages,
+schemas and timestamp behaviour. Judged as one file it looks partly intraday,
+when in fact one block is intraday and every other block is date-only. Pooling
+them hides exactly the property the gate exists to detect.
 
-    `timestamp_profile` and `compare_candidates` apply the intraday gate to a
-    *whole file*. The B03 audit showed that is the wrong unit: FNSPID's
-    All_external.csv concatenates five-plus sub-corpora with different
-    languages, schemas and timestamp behaviour. Judged as one file it looks
-    partly intraday, when in fact one block (Reuters) is intraday and every
-    other block is date-only. The gate must be applied per source.
+Two rules are enforced in code rather than left as caveats in prose.
 
-    `coverage_profile` and `suggest_window` further assume the input sample is
-    representative of the corpus. The bounded audit sample is a *cluster*
-    sample over tickers, so market-wide per-session rates cannot be estimated
-    from it.
+1. **Per-source profiling.** Every timestamp, language, coverage and tagging
+   statistic is computed within a source. There is no whole-file verdict.
+2. **Cluster samples cannot produce corpus-wide rates.** A bounded audit sample
+   drawn as byte-range slices of a ticker-ordered file returns whole ticker
+   blocks. Statistics that need a representative sample -- duplication rate,
+   headlines per session, company concentration -- are *withheld* on such a
+   sample, with the reason recorded, instead of being computed and quietly
+   believed. See `CorpusRate`.
 
-    Reworking this module to profile per source is the next increment. Until
-    then these functions are sound only for a single-source input, and the
-    conclusions in docs/data-audit-fnspid.md were produced by the analysis
-    recorded there, not by compare_candidates.
-
-The plan is explicit that no description of either candidate dataset is to be
-trusted -- including its own. So every claim a dataset makes about itself is
-checked here against the data, and each check returns a verdict rather than a
-number for the reader to interpret.
-
-The audit answers, per candidate, in the plan's priority order:
-  1. are the intraday timestamps real?   `timestamp_profile`
-  2. how good is coverage / duplication? `coverage_profile`, `duplication_profile`
-  3. how long is the usable sample?      `coverage_profile`, `suggest_window`
-and `compare_candidates` reduces those to a single choice with a stated reason.
-
-Nothing here plots. Figures live in `src/plots.py`.
+What this module does not do: decide relevance. Whether a source's content
+belongs in the study is a human judgement made against a written criterion and
+recorded in the audit document. `screen_sources` reports the mechanical
+criteria and marks relevance as a decision to be supplied, because a screen
+that silently invented that judgement would be the most dangerous thing here.
 """
 
 from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 import config
-from src import data as sdata
 
-# A dataset whose stamps are really dates carries a huge mass at one clock time
-# (usually midnight). Above this share we call it date-only regardless of what
-# the column is named or what the documentation says.
+# A source whose stamps are really dates puts a large mass at one clock time.
 DATE_ONLY_SHARE = 0.50
-# Even a genuine intraday feed clusters on the minute; below this many distinct
-# minutes-of-day the "intraday" stamps are not resolving anything useful.
+# Even a genuine feed clusters on the minute; below this the stamps resolve
+# nothing usable.
 MIN_DISTINCT_MINUTES = 60
 
+CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+_DOMAIN = re.compile(r"https?://(?:www\.)?([^/]+)")
 
-def timestamp_profile(df: pd.DataFrame, ts_col: str = "ts_et") -> dict:
-    """Is this an intraday feed, or a date-only one wearing a timestamp column?
+# Canonical names for the sub-corpora seen in FNSPID. Order matters: the first
+# substring that matches a URL host wins.
+KNOWN_SOURCES = (
+    "benzinga", "seekingalpha", "zacks", "reuters", "bloomberg", "lenta.ru",
+    "gurufocus", "investors.com", "thestreet", "nasdaq",
+)
 
-    The tell is concentration: a date-only dump converted to datetimes puts
-    every row at the same clock time. Returns the evidence and a verdict.
+
+@dataclass
+class CorpusRate:
+    """A statistic that is only meaningful on a representative sample.
+
+    Carries either a value or the reason it was withheld, so a downstream
+    reader cannot mistake "not computable from this sample" for "zero".
     """
-    ts = pd.to_datetime(df[ts_col])
+
+    name: str
+    value: float | None = None
+    withheld_reason: str | None = None
+
+    @property
+    def available(self) -> bool:
+        return self.value is not None
+
+    def __repr__(self) -> str:
+        if self.available:
+            return f"{self.name}={self.value:.4g}"
+        return f"{self.name}=WITHHELD({self.withheld_reason})"
+
+
+CLUSTER_REASON = (
+    "sample is a cluster sample (byte-range slices of a ticker-ordered file), "
+    "so this rate is an artifact of which offsets were drawn; compute it on the "
+    "assembled corpus instead"
+)
+
+
+# --------------------------------------------------------------- loading ----
+
+
+def source_of(url: pd.Series) -> pd.Series:
+    """URL host -> canonical source name; '(no url)' when absent."""
+    host = url.astype("string").str.extract(_DOMAIN)[0].fillna("(no url)")
+
+    def canon(h: str) -> str:
+        for k in KNOWN_SOURCES:
+            if k in h:
+                return k
+        return h
+
+    return host.map(canon)
+
+
+def load_sample(path: str | Path, date_col: str = "Date") -> tuple[pd.DataFrame, dict]:
+    """Read a downloaded audit sample and normalise it, reporting what was dropped.
+
+    Rows whose `Date` does not match `YYYY-MM-DD HH:MM:SS UTC` are dropped and
+    counted. They are not noise: in FNSPID they are fragments of article body
+    text, which is how the embedded-newline problem in the `Article` field
+    announces itself. The count is returned so it stays visible.
+    """
+    df = pd.read_parquet(path)
+    pattern = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$"
+    conforms = df[date_col].astype("string").str.match(pattern).fillna(False)
+
+    stats = {
+        "n_read": int(len(df)),
+        "n_dropped_malformed_date": int((~conforms).sum()),
+        "malformed_examples": df.loc[~conforms, date_col].astype(str).head(3).tolist(),
+    }
+
+    out = df[conforms].copy()
+    out["ts_utc"] = pd.to_datetime(
+        out[date_col].astype(str).str.removesuffix(" UTC"), utc=True
+    )
+    out["ts_et"] = out["ts_utc"].dt.tz_convert(config.TZ_MARKET)
+    if "Url" in out.columns:
+        out["source"] = source_of(out["Url"])
+    else:
+        out["source"] = "(no url)"
+    stats["n_kept"] = int(len(out))
+    stats["sources"] = out["source"].value_counts().to_dict()
+    return out.reset_index(drop=True), stats
+
+
+# ------------------------------------------------------ per-source audit ----
+
+
+def timestamp_profile(ts: pd.Series, ts_market: pd.Series | None = None) -> dict:
+    """Timestamp evidence for **one source**. Never call this on a pooled file.
+
+    Two clocks, deliberately, because conflating them hides the answer.
+
+    *Concentration* -- the tell for a date-only feed -- is measured on `ts` in
+    **the zone the source published in**. A date column parsed to datetimes
+    puts every row at midnight *of that zone*. FNSPID stamps are UTC, so its
+    date-only rows sit at 00:00 UTC, which is 19:00 or 20:00 in New York: read
+    in market time they look like an evening publication spike rather than the
+    absence of a time, and `midnight_share` would report 0%.
+
+    *Session position* -- before open, in session, after close -- is measured on
+    `ts_market`, which must be market time, since that is the only clock in
+    which "after the close" means anything. Defaults to `ts` converted.
+    """
+    ts = pd.to_datetime(pd.Series(ts).reset_index(drop=True))
     if getattr(ts.dt, "tz", None) is None:
-        raise ValueError(f"{ts_col} is timezone-naive; localize at load time (§4)")
+        raise ValueError("timestamps must be timezone-aware; localize at load time")
 
-    minute_of_day = ts.dt.hour * 60 + ts.dt.minute
-    counts = minute_of_day.value_counts()
-    modal_minute = int(counts.index[0])
-    modal_share = float(counts.iloc[0] / len(ts))
-    midnight_share = float((minute_of_day == 0).mean())
-    distinct_minutes = int(minute_of_day.nunique())
+    if ts_market is None:
+        mkt = ts.dt.tz_convert(config.TZ_MARKET)
+    else:
+        mkt = pd.to_datetime(pd.Series(ts_market).reset_index(drop=True))
+        if getattr(mkt.dt, "tz", None) is None:
+            raise ValueError("ts_market must be timezone-aware")
+        mkt = mkt.dt.tz_convert(config.TZ_MARKET)
 
-    # Where does the news actually land relative to the 16:00 ET close? If
-    # almost none of it is intraday, D6 is doing very little work.
-    close_minute = config.MARKET_CLOSE_ET.hour * 60 + config.MARKET_CLOSE_ET.minute
-    open_minute = 9 * 60 + 30
+    minute = ts.dt.hour * 60 + ts.dt.minute          # source clock
+    counts = minute.value_counts()
+    modal, modal_share = int(counts.index[0]), float(counts.iloc[0] / len(ts))
+    distinct = int(minute.nunique())
+    date_only = modal_share >= DATE_ONLY_SHARE or distinct < MIN_DISTINCT_MINUTES
 
-    looks_date_only = modal_share >= DATE_ONLY_SHARE or distinct_minutes < MIN_DISTINCT_MINUTES
-
+    m_minute = mkt.dt.hour * 60 + mkt.dt.minute      # market clock
+    close = config.MARKET_CLOSE_ET.hour * 60 + config.MARKET_CLOSE_ET.minute
+    open_ = 9 * 60 + 30
     return {
         "n": int(len(ts)),
-        "modal_minute": modal_minute,
-        "modal_time": f"{modal_minute // 60:02d}:{modal_minute % 60:02d}",
+        "source_tz": str(ts.dt.tz),
+        "modal_minute": modal,
+        "modal_time": f"{modal // 60:02d}:{modal % 60:02d}",
         "modal_share": modal_share,
-        "midnight_share": midnight_share,
-        "distinct_minutes_of_day": distinct_minutes,
-        "share_in_session": float(
-            ((minute_of_day >= open_minute) & (minute_of_day <= close_minute)).mean()
-        ),
-        "share_after_close": float((minute_of_day > close_minute).mean()),
-        "share_before_open": float((minute_of_day < open_minute).mean()),
-        "looks_date_only": bool(looks_date_only),
+        "midnight_share": float((minute == 0).mean()),
+        "distinct_minutes": distinct,
+        "share_before_open": float((m_minute < open_).mean()),
+        "share_in_session": float(((m_minute >= open_) & (m_minute <= close)).mean()),
+        "share_after_close": float((m_minute > close).mean()),
+        "looks_date_only": bool(date_only),
         "verdict": (
-            f"DATE-ONLY: {modal_share:.1%} of stamps land at "
-            f"{modal_minute // 60:02d}:{modal_minute % 60:02d}; D6 cannot be applied "
-            "-- invoke D2 (news dated d -> trading day d+1, RQ2 dropped)"
-            if looks_date_only
-            else f"INTRADAY: {distinct_minutes} distinct minutes-of-day, modal minute "
-            f"holds only {modal_share:.1%}; D6 applies"
+            f"DATE-ONLY: {modal_share:.1%} of stamps at "
+            f"{modal // 60:02d}:{modal % 60:02d} {ts.dt.tz}; the intraday close "
+            "rule cannot be applied to this source"
+            if date_only
+            else f"INTRADAY: {distinct} distinct minutes-of-day, modal minute holds "
+            f"only {modal_share:.1%}"
         ),
     }
+
+
+def script_profile(text: pd.Series) -> dict:
+    """Is this source's text actually English?
+
+    Cheap and specific: the share of headlines containing Cyrillic characters,
+    plus the non-ASCII share. This is what separates a Russian-language general
+    news site from a financial newswire without loading a language model, and
+    scoring non-English text with an English financial model produces numbers
+    that look fine and mean nothing.
+    """
+    s = text.astype("string").fillna("")
+    return {
+        "cyrillic_share": float(s.str.contains(CYRILLIC, regex=True).mean()),
+        "non_ascii_share": float(s.str.contains(r"[^\x00-\x7F]", regex=True).mean()),
+        "likely_non_english": bool(s.str.contains(CYRILLIC, regex=True).mean() > 0.05),
+    }
+
+
+def profile_by_source(
+    df: pd.DataFrame,
+    text_col: str = "Article_title",
+    ticker_col: str = "Stock_symbol",
+    ts_col: str = "ts_utc",
+    ts_market_col: str = "ts_et",
+) -> pd.DataFrame:
+    """One row per source: the whole B03 evidence table.
+
+    This replaces the old whole-file profile. Every column here is computed
+    within a source, because that is the only unit at which the numbers mean
+    anything for a concatenated corpus.
+    """
+    rows = []
+    for name, g in df.groupby("source", sort=False):
+        tp = timestamp_profile(
+            g[ts_col], g[ts_market_col] if ts_market_col in g else None
+        )
+        sp = script_profile(g[text_col]) if text_col in g else {}
+        rows.append(
+            {
+                "source": name,
+                "rows": len(g),
+                "midnight_share": tp["midnight_share"],
+                "modal_time": tp["modal_time"],
+                "modal_share": tp["modal_share"],
+                "distinct_minutes": tp["distinct_minutes"],
+                "looks_date_only": tp["looks_date_only"],
+                "ticker_share": (
+                    float(g[ticker_col].notna().mean()) if ticker_col in g else np.nan
+                ),
+                "cyrillic_share": sp.get("cyrillic_share", np.nan),
+                "likely_non_english": sp.get("likely_non_english", False),
+                "first": g[ts_col].min(),
+                "last": g[ts_col].max(),
+                "verdict": tp["verdict"],
+            }
+        )
+    return (
+        pd.DataFrame(rows)
+        .sort_values("rows", ascending=False)
+        .set_index("source")
+    )
+
+
+def midnight_share_by_year(df: pd.DataFrame, ts_col: str = "ts_utc") -> pd.DataFrame:
+    """Midnight share per source per year -- the timestamp *regime* over time.
+
+    Measured on the source clock, for the reason given in `timestamp_profile`.
+
+    A source can change instrument mid-history. FNSPID's Benzinga block sits at
+    96-100% midnight through 2019 and drops to 75% in 2020, which makes 2020 a
+    different measurement from the years before it and is the reason the sample
+    window excludes it. A single pooled share would have hidden that entirely.
+    """
+    ts = pd.to_datetime(df[ts_col])
+    frame = pd.DataFrame(
+        {
+            "year": ts.dt.year,
+            "source": df["source"].to_numpy(),
+            "is_midnight": ((ts.dt.hour == 0) & (ts.dt.minute == 0) & (ts.dt.second == 0)),
+        }
+    )
+    return frame.pivot_table(
+        index="year", columns="source", values="is_midnight", aggfunc="mean"
+    )
 
 
 def hour_histogram(df: pd.DataFrame, ts_col: str = "ts_et") -> pd.Series:
-    """Headlines per hour-of-day (ET). The input to the audit's first figure."""
-    ts = pd.to_datetime(df[ts_col])
-    return ts.dt.hour.value_counts().reindex(range(24), fill_value=0).sort_index()
+    """Headlines per hour-of-day (ET), for one source's rows."""
+    return (
+        pd.to_datetime(df[ts_col]).dt.hour.value_counts()
+        .reindex(range(24), fill_value=0).sort_index()
+    )
+
+
+def content_sample(
+    df: pd.DataFrame,
+    source: str,
+    n: int = 20,
+    text_col: str = "Article_title",
+    seed: int = config.SEED,
+) -> list[str]:
+    """Titles to read by eye. Relevance is judged by a human, not by a statistic."""
+    g = df[df["source"] == source][text_col].dropna()
+    if g.empty:
+        return []
+    return g.sample(min(n, len(g)), random_state=seed).astype(str).tolist()
+
+
+# --------------------------------------------- statistics needing a census ----
 
 
 def coverage_profile(
-    df: pd.DataFrame, calendar: pd.DatetimeIndex | None = None, ts_col: str = "ts_et"
+    df: pd.DataFrame,
+    calendar: pd.DatetimeIndex | None = None,
+    clustered: bool = True,
+    ts_col: str = "ts_et",
 ) -> dict:
-    """Headlines per year and per trading day, and the zero-news day share.
+    """Span and per-year counts, plus per-session rates **only if representative**.
 
-    Zero-news days are the D9 exclusion, so their count is a sample-size fact,
-    not a footnote. `per_year` doubles as the D4 evidence: the window is the
-    longest span with *stable* coverage, not simply the longest span available.
+    `clustered=True` (the default, and the truth for a byte-range sample of a
+    ticker-ordered file) withholds every per-session rate. Those numbers are a
+    property of the assembled corpus, not of an arbitrary set of ticker blocks,
+    and returning them anyway would be the quiet kind of wrong.
     """
     ts = pd.to_datetime(df[ts_col])
-    per_year = ts.dt.year.value_counts().sort_index()
-
-    out = {
+    out: dict = {
         "n_headlines": int(len(df)),
         "first": ts.min(),
         "last": ts.max(),
-        "per_year": per_year,
+        "per_year": ts.dt.year.value_counts().sort_index(),
+        "clustered": clustered,
     }
 
-    if calendar is None:
+    rate_names = ("per_session_mean", "per_session_median", "zero_news_share", "thin_days_share")
+    if clustered or calendar is None:
+        reason = CLUSTER_REASON if clustered else "no trading calendar supplied"
+        for r in rate_names:
+            out[r] = CorpusRate(r, withheld_reason=reason)
         return out
 
     from src import align
 
     day = align.map_to_trading_day(ts, calendar)
-    unassignable = int(day.isna().sum())
     per_day = day.value_counts().reindex(pd.DatetimeIndex(calendar), fill_value=0)
-
-    out.update(
-        {
-            "n_sessions": int(len(calendar)),
-            "n_unassignable": unassignable,
-            "per_day_mean": float(per_day.mean()),
-            "per_day_median": float(per_day.median()),
-            "per_day_p10": float(per_day.quantile(0.10)),
-            "zero_news_days": int((per_day == 0).sum()),
-            "zero_news_share": float((per_day == 0).mean()),
-            "thin_days_share": float(
-                (per_day < config.MIN_HEADLINES_FOR_DISPERSION).mean()
-            ),  # these lose d_t under D9
-            "per_day": per_day,
-        }
+    out["n_unassignable"] = int(day.isna().sum())
+    out["per_session_mean"] = CorpusRate("per_session_mean", float(per_day.mean()))
+    out["per_session_median"] = CorpusRate("per_session_median", float(per_day.median()))
+    out["zero_news_share"] = CorpusRate("zero_news_share", float((per_day == 0).mean()))
+    out["thin_days_share"] = CorpusRate(
+        "thin_days_share",
+        float((per_day < config.MIN_HEADLINES_FOR_DISPERSION).mean()),
     )
+    out["per_day"] = per_day
     return out
 
 
-def duplication_profile(df: pd.DataFrame, **dedup_kwargs) -> dict:
-    """Exact and near-duplicate rates, from the same `dedup` the pipeline uses.
+def duplication_profile(df: pd.DataFrame, clustered: bool = True, **dedup_kwargs) -> dict:
+    """Duplication, withheld on a cluster sample.
 
-    Syndicated headlines inflate n_t and distort S_t, so this rate is reported
-    in the write-up rather than silently absorbed.
+    A market-wide roundup headline is emitted once per tagged ticker, so its
+    repeats are largely invisible in a sample containing only some of those
+    tickers: the measured rate would understate the corpus's and there is no
+    way to correct it from the sample. Structural examples are still returned,
+    since those are informative regardless.
     """
+    out = {"clustered": clustered}
+    if "text_norm" not in df.columns and "Article_title" in df.columns:
+        from src.data import normalize_text
+
+        df = df.assign(text_norm=normalize_text(df["Article_title"]))
+
+    if "text_norm" in df.columns:
+        vc = df["text_norm"].value_counts()
+        out["most_repeated"] = vc.head(10)
+        out["share_in_repeated_texts"] = float((vc[vc > 1].sum()) / max(len(df), 1))
+
+    if clustered:
+        out["dedup_rate"] = CorpusRate("dedup_rate", withheld_reason=CLUSTER_REASON)
+        return out
+
+    from src import data as sdata
+
     _, stats = sdata.dedup(df, **dedup_kwargs)
-    return stats
-
-
-def ticker_sanity(df: pd.DataFrame, n: int = 50, seed: int = config.SEED) -> pd.DataFrame:
-    """A hand-checkable sample of headline/ticker pairs, plus tag-rate stats.
-
-    Ticker tags are used only in the Stage 6 single-name spot check, so this is
-    a sanity check, not a validation: read the 50 rows, do not score them.
-    """
-    rng = np.random.default_rng(seed)
-    take = min(n, len(df))
-    idx = rng.choice(len(df), size=take, replace=False)
-    sample = df.iloc[np.sort(idx)][["text", "ts_et", "tickers"]].copy()
-    sample["n_tickers"] = sample["tickers"].map(len)
-
-    tagged = df["tickers"].map(len)
-    sample.attrs["untagged_share"] = float((tagged == 0).mean())
-    sample.attrs["mean_tags"] = float(tagged.mean())
-    sample.attrs["most_covered"] = (
-        pd.Series([t for tags in df["tickers"] for t in tags]).value_counts().head(10)
-        if tagged.sum()
-        else pd.Series(dtype=int)
-    )
-    return sample
+    out.update(stats)
+    out["dedup_rate"] = CorpusRate("dedup_rate", float(stats["dedup_rate"]))
+    return out
 
 
 def suggest_window(
-    df: pd.DataFrame,
-    ts_col: str = "ts_et",
-    min_headlines_per_year: int = 5000,
-    tol: float = 0.25,
+    df: pd.DataFrame, ts_col: str = "ts_et", min_per_year: int = 5000, tol: float = 0.25
 ) -> dict:
-    """Propose D4: the longest *recent* run of years with stable coverage.
+    """Propose a window from one source's per-year counts. A proposal, not a decision.
 
-    Stability, not length, is the binding criterion -- a year with a tenth of
-    the neighbouring coverage makes S_t a different measurement, which is the
-    coverage-drift limitation the plan names. A proposal, not a decision: D4 is
-    locked by hand after reading this and `per_year`.
+    Stability, not length, is binding: a year with a fraction of the neighbouring
+    coverage makes the daily aggregate a different measurement. On a cluster
+    sample the absolute counts are not the corpus's, so the result is marked
+    provisional and the caller must confirm it on the assembled corpus.
     """
-    ts = pd.to_datetime(df[ts_col])
-    per_year = ts.dt.year.value_counts().sort_index()
+    per_year = pd.to_datetime(df[ts_col]).dt.year.value_counts().sort_index()
     if per_year.empty:
-        return {"ok": False, "reason": "no dated headlines"}
+        return {"ok": False, "reason": "no dated headlines", "provisional": True}
 
-    median = float(per_year.median())
-    floor = max(min_headlines_per_year, median * tol)
-    ok_years = per_year[per_year >= floor].index.tolist()
+    floor = max(min_per_year, float(per_year.median()) * tol)
+    ok_years = [int(y) for y in per_year[per_year >= floor].index]
 
-    # Longest consecutive run of acceptable years; ties go to the later run.
     best: list[int] = []
     run: list[int] = []
     for y in ok_years:
@@ -214,86 +405,90 @@ def suggest_window(
             best = run
 
     if not best:
-        return {"ok": False, "reason": f"no year clears {floor:,.0f} headlines"}
+        return {"ok": False, "reason": f"no year clears {floor:,.0f} headlines",
+                "provisional": True}
 
-    n_years = len(best)
     return {
-        "ok": n_years * 252 >= config.MIN_TRADING_DAYS,
+        "ok": len(best) * 252 >= config.MIN_TRADING_DAYS,
         "start": f"{best[0]}-01-01",
         "end": f"{best[-1]}-12-31",
-        "years": n_years,
-        "approx_trading_days": n_years * 252,
-        "floor_used": floor,
+        "years": len(best),
+        "approx_sessions": len(best) * 252,
         "excluded_years": [int(y) for y in per_year.index if y not in best],
+        "provisional": True,
         "reason": (
-            f"{n_years} consecutive years ({best[0]}-{best[-1]}) clear {floor:,.0f} "
-            f"headlines/yr; ~{n_years * 252:,} trading days vs. the "
-            f"{config.MIN_TRADING_DAYS:,} target"
+            f"{len(best)} consecutive years ({best[0]}-{best[-1]}) clear "
+            f"{floor:,.0f} headlines/yr; ~{len(best) * 252:,} sessions vs. the "
+            f"{config.MIN_TRADING_DAYS:,} target. Provisional: confirm coverage "
+            "stability on the assembled corpus before freezing."
         ),
     }
 
 
-def audit_candidate(
-    df: pd.DataFrame, name: str, calendar: pd.DatetimeIndex | None = None
-) -> dict:
-    """Run every check on one candidate and return the evidence in one dict."""
-    return {
-        "name": name,
-        "timestamps": timestamp_profile(df),
-        "coverage": coverage_profile(df, calendar),
-        "duplication": duplication_profile(df),
-        "window": suggest_window(df),
-    }
+# ------------------------------------------------------------- screening ----
 
 
-def compare_candidates(audits: dict[str, dict]) -> pd.DataFrame:
-    """Side-by-side summary and the D1 recommendation, in the plan's priority order.
+@dataclass
+class SourceScreen:
+    """Mechanical screen results, plus the relevance decision a human must supply."""
 
-    Criterion 1 is a gate, not a score: a date-only dataset is disqualified from
-    D1 no matter how good its coverage is. If every candidate fails the gate,
-    the recommendation is D2 -- and the deadline for that is the end of day 1.
+    table: pd.DataFrame
+    passes_intraday: list[str] = field(default_factory=list)
+    passes_language: list[str] = field(default_factory=list)
+    passes_tagging: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def __repr__(self) -> str:
+        return (
+            f"SourceScreen(sources={len(self.table)}, "
+            f"intraday={self.passes_intraday}, english={len(self.passes_language)}, "
+            f"tagged={self.passes_tagging})"
+        )
+
+
+def screen_sources(
+    profile: pd.DataFrame, min_rows: int = 1000, min_ticker_share: float = 0.5
+) -> SourceScreen:
+    """Apply the mechanical criteria per source. Relevance is deliberately absent.
+
+    Reports which sources have usable intraday timestamps, which are plausibly
+    English, and which carry ticker tags. It does **not** pick a universe:
+    whether a source's *content* belongs in the study is a judgement against a
+    written criterion, made by a person and recorded in the audit document. A
+    screen that guessed it would be the most dangerous function in this file --
+    FNSPID's one intraday source passes every mechanical test and is still
+    unusable, because it is a global general newswire.
     """
-    rows = []
-    for name, a in audits.items():
-        ts, cov, dup, win = a["timestamps"], a["coverage"], a["duplication"], a["window"]
-        rows.append(
-            {
-                "candidate": name,
-                "intraday": not ts["looks_date_only"],
-                "modal_share": ts["modal_share"],
-                "distinct_minutes": ts["distinct_minutes_of_day"],
-                "n_headlines": cov["n_headlines"],
-                "dedup_rate": dup["dedup_rate"],
-                "zero_news_share": cov.get("zero_news_share", np.nan),
-                "median_per_day": cov.get("per_day_median", np.nan),
-                "window_years": win.get("years", 0),
-                "window_ok": win.get("ok", False),
-            }
-        )
-    out = pd.DataFrame(rows).set_index("candidate")
+    t = profile[profile["rows"] >= min_rows]
+    screen = SourceScreen(table=t)
+    screen.passes_intraday = t.index[~t["looks_date_only"]].tolist()
+    screen.passes_language = t.index[~t["likely_non_english"].astype(bool)].tolist()
+    screen.passes_tagging = t.index[t["ticker_share"].fillna(0) >= min_ticker_share].tolist()
 
-    passing = out[out["intraday"]]
-    if passing.empty:
-        out.attrs["recommendation"] = "D2"
-        out.attrs["reason"] = (
-            "No candidate has usable intraday timestamps. Invoke D2 now: take the "
-            "better date-only dataset, map news dated d to trading day d+1, and drop "
-            "RQ2. Do not spend day 2 hunting for better data."
+    non_english = t.index[t["likely_non_english"].astype(bool)].tolist()
+    if non_english:
+        screen.notes.append(
+            f"NON-ENGLISH sources present and must be filtered out explicitly: "
+            f"{non_english}. Scoring them with an English financial model yields "
+            "numbers with no meaning."
         )
-        return out
-
-    # Among candidates that clear the gate: fewer duplicates, then fewer
-    # zero-news days, then a longer window.
-    ranked = passing.sort_values(
-        ["dedup_rate", "zero_news_share", "window_years"], ascending=[True, True, False]
+    if not screen.passes_intraday:
+        screen.notes.append(
+            "No source has usable intraday timestamps. The date-only fallback "
+            "applies: defer each headline to a later session and drop the "
+            "same-day question."
+        )
+    else:
+        both = set(screen.passes_intraday) & set(screen.passes_tagging)
+        if not both:
+            screen.notes.append(
+                f"Intraday sources {screen.passes_intraday} carry no ticker tags, "
+                f"while tagged sources {screen.passes_tagging} are date-only. "
+                "Timestamp quality and relevance point at different sources -- "
+                "this is a design decision, not a screening result."
+            )
+    screen.notes.append(
+        "RELEVANCE IS NOT SCREENED HERE. Read content_sample() output for each "
+        "candidate and record the judgement in the audit document."
     )
-    pick = ranked.index[0]
-    out.attrs["recommendation"] = pick
-    out.attrs["reason"] = (
-        f"{pick}: intraday timestamps confirmed ({ranked.loc[pick, 'distinct_minutes']} "
-        f"distinct minutes-of-day, modal minute {ranked.loc[pick, 'modal_share']:.1%}), "
-        f"dedup rate {ranked.loc[pick, 'dedup_rate']:.1%}, "
-        f"{ranked.loc[pick, 'zero_news_share']:.1%} zero-news sessions, "
-        f"{ranked.loc[pick, 'window_years']} usable years."
-    )
-    return out
+    return screen

@@ -1,9 +1,16 @@
-"""Stage 0 audit checks, on synthetic candidates with known properties.
+"""Audit tests, on a synthetic corpus with FNSPID's actual failure modes.
 
-The point of these tests is the gate: a date-only dataset must be *caught*, not
-scored well on coverage and waved through. So one synthetic candidate is a
-genuine intraday feed and the other is a date dump wearing a timestamp column,
-and the audit has to tell them apart and pick the right one.
+The fixture deliberately reproduces the three traps the real B03 audit hit:
+
+  * a concatenated file whose pooled timestamp profile looks nothing like any
+    of its parts;
+  * an intraday source that passes every mechanical check and is still the
+    wrong content;
+  * a non-English source hiding inside a financial dataset.
+
+The tests assert that the module separates sources, refuses to produce
+corpus-wide rates from a cluster sample, and does not pretend to judge
+relevance.
 """
 
 from __future__ import annotations
@@ -20,198 +27,255 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import config
 from src import audit
 
-CALENDAR = pd.DatetimeIndex(pd.bdate_range("2020-01-01", "2023-12-29"))
+RNG = np.random.default_rng(config.SEED)
+DAYS = pd.bdate_range("2015-01-01", "2019-12-31")
 
 
-def _make(stamps, texts=None, tickers=None) -> pd.DataFrame:
-    stamps = pd.Series(pd.to_datetime(stamps))
+def _rows(source_url, titles, stamps, ticker=True):
     n = len(stamps)
-    texts = texts or [f"headline number {i}" for i in range(n)]
     return pd.DataFrame(
         {
-            "headline_id": [f"h{i:06d}" for i in range(n)],
-            "text": texts,
-            "text_norm": [t.lower() for t in texts],
-            "ts_utc": stamps.dt.tz_convert("UTC"),
-            "ts_et": stamps,
-            "tickers": tickers if tickers is not None else [["SPY"] for _ in range(n)],
+            "Date": [f"{t:%Y-%m-%d %H:%M:%S} UTC" for t in stamps],
+            "Article_title": [titles[i % len(titles)] for i in range(n)],
+            "Stock_symbol": (["AAPL"] * n) if ticker else [None] * n,
+            "Url": [f"https://www.{source_url}/story/{i}" for i in range(n)],
         }
     )
 
 
 @pytest.fixture(scope="module")
-def intraday():
-    """A believable feed: ~20 headlines per weekday, spread across the clock."""
-    rng = np.random.default_rng(config.SEED)
-    stamps = []
-    for day in CALENDAR:
-        for _ in range(20):
-            minute = int(rng.integers(4 * 60, 22 * 60))
-            stamps.append(
-                pd.Timestamp(day, tz=config.TZ_MARKET) + pd.Timedelta(minutes=minute)
-            )
-    return _make(pd.Series(stamps).sort_values().reset_index(drop=True))
+def corpus():
+    """Three sources concatenated, mirroring the real file's structure."""
+    # (a) tagged US-equity source, DATE-ONLY -- like FNSPID's Benzinga block
+    bz = _rows("benzinga.com",
+               ["Apple beats on earnings", "Stocks That Hit 52-Week Highs On Friday"],
+               [pd.Timestamp(d, tz="UTC") for d in DAYS for _ in range(4)])
+    # (b) untagged wire, GENUINELY INTRADAY -- like FNSPID's Reuters block
+    rt = _rows("reuters.com",
+               ["Fashion comes first at Royal Ascot Ladies' Day",
+                "REG-Baillie Gifford Japan - Net Asset Value(s)"],
+               [pd.Timestamp(d, tz="UTC") + pd.Timedelta(minutes=int(RNG.integers(0, 1440)))
+                for d in DAYS for _ in range(6)],
+               ticker=False)
+    # (c) Russian-language general news, date-only -- like lenta.ru
+    ln = _rows("lenta.ru",
+               ["Китай раскрыл планы по исследованию Луны",
+                "«Зеленый день» заменит в России «Черную пятницу»"],
+               [pd.Timestamp(d, tz="UTC") for d in DAYS[:600] for _ in range(3)],
+               ticker=False)
+    return pd.concat([bz, rt, ln], ignore_index=True)
 
 
 @pytest.fixture(scope="module")
-def date_only():
-    """The trap: a date column parsed to datetimes, so every stamp is midnight."""
-    stamps = []
-    for day in CALENDAR:
-        for _ in range(20):
-            stamps.append(pd.Timestamp(day, tz=config.TZ_MARKET))
-    return _make(pd.Series(stamps))
+def loaded(corpus, tmp_path_factory):
+    p = tmp_path_factory.mktemp("audit") / "sample.parquet"
+    # Inject the malformed rows that embedded newlines produce in the real file.
+    bad = pd.DataFrame({
+        "Date": ["with the matter.  Bakrie & Brothers", "$1.34 billion bridge loan"],
+        "Article_title": ["frag", "frag"], "Stock_symbol": [None, None],
+        "Url": [None, None],
+    })
+    pd.concat([corpus, bad], ignore_index=True).to_parquet(p, index=False)
+    return audit.load_sample(p)
 
 
-# ---------------------------------------------------------------- criterion 1
+# ----------------------------------------------------------------- loading
 
 
-def test_intraday_feed_is_recognised(intraday):
-    p = audit.timestamp_profile(intraday)
-    assert p["looks_date_only"] is False
-    assert p["distinct_minutes_of_day"] >= audit.MIN_DISTINCT_MINUTES
-    assert p["modal_share"] < audit.DATE_ONLY_SHARE
-    assert "INTRADAY" in p["verdict"]
+def test_load_drops_and_counts_malformed_dates(loaded):
+    df, stats = loaded
+    assert stats["n_dropped_malformed_date"] == 2
+    assert stats["n_kept"] == stats["n_read"] - 2
+    assert any("Bakrie" in e for e in stats["malformed_examples"])
 
 
-def test_date_only_dump_is_caught(date_only):
-    p = audit.timestamp_profile(date_only)
-    assert p["looks_date_only"] is True
-    assert p["midnight_share"] == pytest.approx(1.0)
-    assert "D2" in p["verdict"]
+def test_load_classifies_sources(loaded):
+    df, _ = loaded
+    assert set(df["source"].unique()) == {"benzinga", "reuters", "lenta.ru"}
 
 
-def test_almost_date_only_is_still_caught():
-    """95% at one clock time and a 5% intraday tail must not read as intraday."""
-    rng = np.random.default_rng(0)
-    base = pd.Timestamp("2021-03-01", tz=config.TZ_MARKET)
-    stamps = [base + pd.Timedelta(days=int(i % 300)) for i in range(1900)]
-    stamps += [
-        base + pd.Timedelta(days=int(i % 300), minutes=int(rng.integers(1, 1400)))
-        for i in range(100)
-    ]
-    p = audit.timestamp_profile(_make(pd.Series(stamps).sort_values().reset_index(drop=True)))
-    assert p["looks_date_only"] is True
+def test_load_makes_timestamps_tz_aware(loaded):
+    df, _ = loaded
+    assert df["ts_utc"].dt.tz is not None and df["ts_et"].dt.tz is not None
 
 
-def test_naive_timestamps_are_rejected(intraday):
-    naive = intraday.copy()
-    naive["ts_et"] = naive["ts_et"].dt.tz_localize(None)
+# ------------------------------------------- the pooling trap, per source
+
+
+def test_pooled_profile_would_have_been_misleading(loaded):
+    """The whole point of the rework: the file's pooled view is not any source's."""
+    df, _ = loaded
+    pooled = audit.timestamp_profile(df["ts_utc"], df["ts_et"])
+    per_source = audit.profile_by_source(df)
+
+    # Pooled, the corpus looks intraday because Reuters dominates the row count.
+    assert pooled["looks_date_only"] is False
+    # Per source, two of the three are date-only -- including the only usable one.
+    assert per_source.loc["benzinga", "looks_date_only"]
+    assert per_source.loc["lenta.ru", "looks_date_only"]
+    assert not per_source.loc["reuters", "looks_date_only"]
+
+
+def test_profile_by_source_separates_the_three_regimes(loaded):
+    df, _ = loaded
+    p = audit.profile_by_source(df)
+    assert p.loc["benzinga", "midnight_share"] == pytest.approx(1.0)
+    assert p.loc["reuters", "distinct_minutes"] > audit.MIN_DISTINCT_MINUTES
+    assert p.loc["reuters", "midnight_share"] < 0.05
+    assert p.loc["benzinga", "ticker_share"] == pytest.approx(1.0)
+    assert p.loc["reuters", "ticker_share"] == pytest.approx(0.0)
+
+
+def test_non_english_source_is_flagged(loaded):
+    df, _ = loaded
+    p = audit.profile_by_source(df)
+    assert p.loc["lenta.ru", "likely_non_english"]
+    assert p.loc["lenta.ru", "cyrillic_share"] > 0.9
+    assert not p.loc["benzinga", "likely_non_english"]
+    assert not p.loc["reuters", "likely_non_english"]
+
+
+def test_timestamp_profile_rejects_naive_input(loaded):
+    df, _ = loaded
     with pytest.raises(ValueError):
-        audit.timestamp_profile(naive)
+        audit.timestamp_profile(df["ts_et"].dt.tz_localize(None))
 
 
-def test_session_shares_sum_to_one(intraday):
-    p = audit.timestamp_profile(intraday)
-    total = p["share_before_open"] + p["share_in_session"] + p["share_after_close"]
-    assert total == pytest.approx(1.0)
+def test_session_shares_sum_to_one(loaded):
+    df, _ = loaded
+    g = df[df.source == "reuters"]
+    p = audit.timestamp_profile(g["ts_utc"], g["ts_et"])
+    assert p["share_before_open"] + p["share_in_session"] + p["share_after_close"] == pytest.approx(1.0)
 
 
-# ---------------------------------------------------------------- criterion 2
+def test_midnight_share_by_year_detects_a_regime_change():
+    """A source that switches instrument mid-history must show up per year."""
+    stamps = []
+    for d in pd.bdate_range("2018-01-01", "2018-12-31"):
+        stamps += [pd.Timestamp(d, tz="UTC")] * 5
+    for d in pd.bdate_range("2019-01-01", "2019-12-31"):
+        stamps += [pd.Timestamp(d, tz="UTC") + pd.Timedelta(minutes=int(RNG.integers(1, 1400)))] * 5
+    df = _rows("benzinga.com", ["headline"], stamps)
+    df["ts_utc"] = pd.to_datetime(df["Date"].str.removesuffix(" UTC"), utc=True)
+    df["source"] = "benzinga"
+    piv = audit.midnight_share_by_year(df)
+    assert piv.loc[2018, "benzinga"] == pytest.approx(1.0)
+    assert piv.loc[2019, "benzinga"] < 0.05
 
 
-def test_coverage_counts_sessions_and_zero_news_days(intraday):
-    c = audit.coverage_profile(intraday, CALENDAR)
-    assert c["n_sessions"] == len(CALENDAR)
-    assert c["per_day_median"] > 0
-    # Every session got headlines, but the last session's post-close news is
-    # unassignable and must be reported, not silently dropped.
-    assert c["zero_news_days"] < len(CALENDAR)
-    assert c["n_unassignable"] >= 0
+# ------------------------------------------- cluster-sample rate withholding
 
 
-def test_coverage_flags_a_gap():
-    """A dataset that stops for a year must show up as zero-news days."""
-    days = CALENDAR[(CALENDAR < "2021-01-01") | (CALENDAR >= "2022-01-01")]
-    stamps = [pd.Timestamp(d, tz=config.TZ_MARKET) + pd.Timedelta(hours=10) for d in days]
-    c = audit.coverage_profile(_make(pd.Series(stamps)), CALENDAR)
-    assert c["zero_news_share"] > 0.2
+def test_corpus_rates_are_withheld_on_a_cluster_sample(loaded):
+    df, _ = loaded
+    cov = audit.coverage_profile(df, calendar=pd.DatetimeIndex(DAYS), clustered=True)
+    for name in ("per_session_mean", "zero_news_share", "thin_days_share"):
+        rate = cov[name]
+        assert not rate.available
+        assert "cluster sample" in rate.withheld_reason
+        assert "WITHHELD" in repr(rate)
 
 
-def test_duplication_profile_reports_a_rate():
-    texts = ["apple beats on earnings"] * 40 + [f"unique story {i}" for i in range(60)]
-    stamps = [
-        pd.Timestamp("2021-06-01", tz=config.TZ_MARKET) + pd.Timedelta(hours=i % 48)
-        for i in range(100)
-    ]
-    stats = audit.duplication_profile(_make(pd.Series(stamps), texts=texts))
-    assert stats["n_in"] == 100
-    assert stats["dedup_rate"] > 0.3
-    assert stats["n_exact_dropped"] > 0
+def test_corpus_rates_are_computed_when_representative(loaded):
+    df, _ = loaded
+    cov = audit.coverage_profile(df[df.source == "benzinga"],
+                                 calendar=pd.DatetimeIndex(DAYS), clustered=False)
+    assert cov["per_session_mean"].available
+    assert cov["per_session_mean"].value > 0
+    assert 0.0 <= cov["zero_news_share"].value <= 1.0
 
 
-def test_ticker_sanity_returns_a_readable_sample(intraday):
-    sample = audit.ticker_sanity(intraday, n=50)
-    assert len(sample) == 50
-    assert list(sample.columns) == ["text", "ts_et", "tickers", "n_tickers"]
-    assert sample.attrs["untagged_share"] == 0.0
-    assert sample.attrs["most_covered"].index[0] == "SPY"
+def test_span_and_per_year_are_always_available(loaded):
+    """Facts that survive clustering must not be withheld along with the rates."""
+    df, _ = loaded
+    cov = audit.coverage_profile(df, clustered=True)
+    assert cov["n_headlines"] > 0
+    assert not cov["per_year"].empty
+    assert cov["first"] < cov["last"]
 
 
-def test_ticker_sanity_is_seeded(intraday):
-    a = audit.ticker_sanity(intraday, n=25)
-    b = audit.ticker_sanity(intraday, n=25)
-    pd.testing.assert_frame_equal(a, b)
+def test_duplication_rate_is_withheld_but_examples_survive(loaded):
+    df, _ = loaded
+    dup = audit.duplication_profile(df, clustered=True)
+    assert not dup["dedup_rate"].available
+    # The structural evidence is still useful and is still returned.
+    assert dup["most_repeated"].iloc[0] > 1
+    assert dup["share_in_repeated_texts"] > 0.5
 
 
-# ---------------------------------------------------------------- criterion 3
+def test_duplication_rate_computed_when_representative(loaded):
+    df, _ = loaded
+    dup = audit.duplication_profile(df[df.source == "benzinga"].head(200), clustered=False)
+    assert dup["dedup_rate"].available
 
 
-def test_suggest_window_finds_the_stable_run(intraday):
-    w = audit.suggest_window(intraday, min_headlines_per_year=1000)
-    assert w["start"] == "2020-01-01"
-    assert w["end"] == "2023-12-31"
-    assert w["years"] == 4
+# ------------------------------------------------------------- screening
+
+
+def test_screen_reports_the_split_between_timestamps_and_relevance(loaded):
+    df, _ = loaded
+    screen = audit.screen_sources(audit.profile_by_source(df))
+    assert screen.passes_intraday == ["reuters"]
+    assert "reuters" not in screen.passes_tagging
+    assert "benzinga" in screen.passes_tagging
+    joined = " ".join(screen.notes)
+    assert "carry no ticker tags" in joined
+
+
+def test_screen_flags_the_non_english_source(loaded):
+    df, _ = loaded
+    screen = audit.screen_sources(audit.profile_by_source(df))
+    assert "lenta.ru" not in screen.passes_language
+    assert "NON-ENGLISH" in " ".join(screen.notes)
+
+
+def test_screen_never_selects_a_universe(loaded):
+    """Relevance is a human judgement; the screen must say so and not guess."""
+    df, _ = loaded
+    screen = audit.screen_sources(audit.profile_by_source(df))
+    assert not hasattr(screen, "recommendation")
+    assert "RELEVANCE IS NOT SCREENED HERE" in " ".join(screen.notes)
+
+
+def test_screen_reports_the_fallback_when_nothing_is_intraday(loaded):
+    df, _ = loaded
+    only_date_only = df[df.source != "reuters"]
+    screen = audit.screen_sources(audit.profile_by_source(only_date_only))
+    assert screen.passes_intraday == []
+    assert "date-only fallback" in " ".join(screen.notes)
+
+
+# ------------------------------------------------------------ window / misc
+
+
+def test_suggest_window_is_always_marked_provisional(loaded):
+    df, _ = loaded
+    w = audit.suggest_window(df[df.source == "benzinga"], min_per_year=500)
+    assert w["provisional"] is True
+    assert w["start"] == "2015-01-01" and w["end"] == "2019-12-31"
 
 
 def test_suggest_window_excludes_a_thin_ramp_up_year():
-    """Coverage that ramps from nothing must not drag the window backwards."""
     stamps = []
-    for year, count in ((2018, 50), (2019, 60), (2020, 6000), (2021, 6200), (2022, 5900)):
-        for i in range(count):
-            stamps.append(
-                pd.Timestamp(f"{year}-01-01", tz=config.TZ_MARKET) + pd.Timedelta(hours=i)
-            )
-    w = audit.suggest_window(_make(pd.Series(stamps)), min_headlines_per_year=1000)
-    assert w["start"] == "2020-01-01"
-    assert 2018 in w["excluded_years"] and 2019 in w["excluded_years"]
+    for year, count in ((2016, 40), (2017, 3000), (2018, 3100), (2019, 2900)):
+        stamps += [pd.Timestamp(f"{year}-01-01", tz="UTC") + pd.Timedelta(hours=i)
+                   for i in range(count)]
+    df = _rows("benzinga.com", ["h"], stamps)
+    df["ts_utc"] = pd.to_datetime(df["Date"].str.removesuffix(" UTC"), utc=True)
+    w = audit.suggest_window(df, ts_col="ts_utc", min_per_year=500)
+    assert w["start"] == "2017-01-01" and 2016 in w["excluded_years"]
 
 
-def test_suggest_window_reports_failure_rather_than_guessing():
-    stamps = [pd.Timestamp("2021-01-01", tz=config.TZ_MARKET) + pd.Timedelta(hours=i)
-              for i in range(10)]
-    w = audit.suggest_window(_make(pd.Series(stamps)), min_headlines_per_year=5000)
-    assert w["ok"] is False and "reason" in w
+def test_content_sample_is_seeded_and_bounded(loaded):
+    df, _ = loaded
+    a = audit.content_sample(df, "reuters", n=10)
+    b = audit.content_sample(df, "reuters", n=10)
+    assert a == b and len(a) == 10
+    assert audit.content_sample(df, "nonexistent") == []
 
 
-# ---------------------------------------------------------------- the choice
-
-
-def test_comparison_picks_the_intraday_candidate(intraday, date_only):
-    audits = {
-        "benzinga": audit.audit_candidate(date_only, "benzinga", CALENDAR),
-        "fnspid": audit.audit_candidate(intraday, "fnspid", CALENDAR),
-    }
-    table = audit.compare_candidates(audits)
-    assert table.attrs["recommendation"] == "fnspid"
-    assert table.loc["benzinga", "intraday"] == False  # noqa: E712
-    assert "intraday timestamps confirmed" in table.attrs["reason"]
-
-
-def test_intraday_gate_beats_better_coverage(intraday, date_only):
-    """The gate is not a score: a date-only set with cleaner data still loses."""
-    audits = {
-        "date_only_but_clean": audit.audit_candidate(date_only, "date_only_but_clean", CALENDAR),
-        "intraday": audit.audit_candidate(intraday, "intraday", CALENDAR),
-    }
-    assert audit.compare_candidates(audits).attrs["recommendation"] == "intraday"
-
-
-def test_all_candidates_date_only_recommends_the_d2_fallback(date_only):
-    audits = {
-        "a": audit.audit_candidate(date_only, "a", CALENDAR),
-        "b": audit.audit_candidate(date_only, "b", CALENDAR),
-    }
-    table = audit.compare_candidates(audits)
-    assert table.attrs["recommendation"] == "D2"
-    assert "RQ2" in table.attrs["reason"]
+def test_hour_histogram_covers_all_24_hours(loaded):
+    df, _ = loaded
+    h = audit.hour_histogram(df[df.source == "reuters"])
+    assert list(h.index) == list(range(24))
+    assert h.sum() == (df.source == "reuters").sum()
