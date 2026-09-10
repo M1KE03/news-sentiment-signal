@@ -4,16 +4,29 @@
   "rubric_sha256": "388516e6d273435527ead78a2efe463f8a5121a78553468ecd5075ebf27b6df9",
   "instrument": "worksheet_v2_calibration.csv + worksheet_v2_evaluation.csv",
   "presentation_order_seed": 20260831,
-  "annotator_role": "TO BE COMPLETED - a role, never a name. e.g. 'project analyst'",
-  "label_source": null,
+  "annotator_role": "project analyst (the same person running the analysis)",
+  "label_source": "human",
   "_label_source": "Set to \"human\" only if a person produced every label.",
-  "blind_to_model_outputs": null,
+  "blind_to_model_outputs": true,
   "_blind_to_model_outputs": "true only if you did not consult any model output while labelling. Scores exist in interim/scores.parquet from 2026-09-10, so this asserts you did not open the cache.",
-  "independent_of_analyst": null,
+  "independent_of_analyst": false,
   "_independent_of_analyst": "true if the annotator is not the person running the analysis.",
-  "scores_existed": null,
+  "scores_existed": true,
   "_scores_existed": "true. The full scoring pass completed 2026-09-10, before labelling.",
-  "sessions": [],
+  "sessions": [
+    {
+      "start": "2026-09-10T21:30:00+03:00",
+      "end": "2026-09-10T23:11:00+03:00",
+      "part": "calibration",
+      "items": 200
+    },
+    {
+      "start": "2026-09-10T22:00:00+03:00",
+      "end": "2026-09-10T23:21:00+03:00",
+      "part": "evaluation",
+      "items": 600
+    }
+  ],
   "_sessions": "One entry per sitting: {\"start\": \"...Z\", \"end\": \"...Z\"}, with time zones.",
   "deviations": [
     "Rubric v1 -> v2 adopted 2026-09-10 after the 60-item pilot flagged 34/60 hard (19 of 20 neutrals). Rules 11-16 added; rule 5 clarified. Items labelled when v2 was adopted: 60, all calibration, none evaluation.",
@@ -21,7 +34,13 @@
     "Two v1 labels were spelled 'postive'; intent was unambiguous from the notes. Not carried forward - the v2 pass re-labels those items from blank.",
     "Rule 12 (legal actions) was checked against event-study evidence after the pilot raised it: defendants show material negative CARs around filing, plaintiffs are indistinguishable from zero. The rule was retained on that basis rather than on intuition.",
     "Section 6a added: the hard flag is treated as a measured ambiguity signal, and Act 1 metrics are reported on both the full evaluation set and the hard=0 confident subset. Prespecified before any label was fitted.",
-    "Rubric v2 -> v3 on 2026-09-10, before any v2 label was written. Rules 12-15 checked against event-study evidence; rule 13 (forced departures are not automatically negative) and rule 15 (M&A direction depends on whether the subject is target or acquirer) were corrected as factually wrong. Section 6b records the evidence and declines the stronger proposal of weighting labels by historical average reaction, which would make the ground truth a function of returns."
+    "Rubric v2 -> v3 on 2026-09-10, before any v2 label was written. Rules 12-15 checked against event-study evidence; rule 13 (forced departures are not automatically negative) and rule 15 (M&A direction depends on whether the subject is target or acquirer) were corrected as factually wrong. Section 6b records the evidence and declines the stronger proposal of weighting labels by historical average reaction, which would make the ground truth a function of returns.",
+    "Session times are SELF-REPORTED AND APPROXIMATE, reconstructed after labelling rather than written at the time. Section 6 requires them to be recorded at labelling time; they were not. Recorded as reconstructed.",
+    "The two sessions OVERLAP. Both worksheets were open in the editor from their creation (2026-09-10 18:38) and were labelled in an interleaved period, roughly 21:30-23:21. Per-file elapsed times are therefore upper bounds on the effort spent on each file, not measurements of it. This does not affect the calibration/evaluation split, which is defined by which items are in each part, not by when they were labelled.",
+    "Implied labelling rate is approximately 8.3 s/item overall across 800 items (111 minutes elapsed). Fast for a 16-rule rubric, and plausible on formulaic headlines that rules 4 and 5 decide immediately. Recorded because a reader assessing label quality is entitled to the number. Internal evidence shows no sign of a degraded pass: longest run of one label is 8 in 600, 237 of 246 notes are distinct, the neutral share drifts away from the default across the file (52% to 45%), the hard rate is flat (9.3% to 9.0%), and there are no blanks, invalid values or text mismatches.",
+    "After completing the evaluation set the annotator re-checked the file for COMPLETENESS ONLY - that no line was skipped and every field was filled - and states that no label was changed. Rubric rule 10 forbids re-reading a batch to make labels consistent; a mechanical completeness check is not that, and is recorded here so the distinction is on the record rather than inferred.",
+    "The annotator asked to be checked after the 200 calibration items before proceeding, per the plan, but labelled the 600 evaluation items before that check was returned. The check subsequently passed (hard rate 9.5%, down from 56.7% under rubric v1), so no rework was required. Recorded because the gate was not observed in the order it was designed to run.",
+    "Blindness: the annotator confirms not having consulted interim/scores.parquet. Note that the file is binary Parquet and does not open in a text editor, which makes casual inspection unlikely but is not itself the basis of the confirmation - the declaration is."
   ],
   "_deviations": "Add any further rubric question that arises and how it was resolved."
 }
