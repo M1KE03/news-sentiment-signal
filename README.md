@@ -9,12 +9,11 @@ the *next* session's SPY return. The two questions are kept apart on purpose: be
 is not assumed to imply a stronger market coefficient, and the contribution does not depend on
 finding a signal.
 
-> **Status: Act 2 complete, Act 1 blocked on human labels.** The protocols are written and frozen,
+> **Status: both acts complete.** The protocols are written and frozen,
 > the corpus is assembled, scored and censused, and the defects found by the
-> [2026-09-09 audit](docs/project-audit-2026-09-09.md) are repaired — 29 of 29 increments, with
-> R13a outstanding only because it needs a person. **869,183 headlines scored by all three scorers;
-> Act 2's primary, secondary, paired-contrast and exploratory families are all estimated. No labels
-> have been collected, so no classification result exists.** 503 tests pass, 0 skip.
+> [2026-09-09 audit](docs/project-audit-2026-09-09.md) are repaired — 29 of 29 increments.
+> **869,183 headlines scored by all three scorers; 800 headlines labelled by hand; both acts
+> estimated with every choice prespecified.** 544 tests pass, 0 skip.
 >
 > Current state lives in [`docs/handover.md`](docs/handover.md); the live plan is the
 > [repair sequence](docs/audit-implementation-plan-2026-09-09.md); the clean-clone procedure is
@@ -90,11 +89,32 @@ averaging a median of 337 headlines per session compresses a *twofold* per-headl
 into a *1.034×* coefficient difference. So this is weak evidence about relative classification
 quality, not strong evidence of similarity.
 
-**Act 1 has no result.** The 800-item evaluation sample is drawn and the ingestion, calibration and
-paired-bootstrap code is implemented and tested — but labels require a person and none have been
-collected. Without them, two of three scorers cannot produce class predictions at all: LM and VADER
-need neutral thresholds fitted on the calibration part. No claim about classification quality
-appears anywhere in this repository.
+**Act 1, classification quality.** 600 independently labelled headlines from this study's own
+collection, 596 usable, thresholds fitted on a separate 200-item calibration part:
+
+| Scorer | macro-F1 | positive-class F1 |
+|---|---:|---:|
+| **FinBERT** | **0.594** | **0.546** |
+| Loughran–McDonald | 0.493 | **0.263** |
+| VADER | 0.424 | 0.390 |
+
+> **macroF1(FinBERT) − macroF1(LM) = +0.102, 95% pointwise [+0.050, +0.153]**, paired bootstrap over
+> article groups. On the confident subset (`hard = 0`, n = 541) it is +0.104 — so the gap does not
+> come from the headlines a careful human could not resolve.
+
+**But the whole gap is one class, and the reason is mechanical.** FinBERT and LM are within 0.02 on
+negative and neutral. Loughran–McDonald calls **83% of genuinely positive headlines neutral**,
+because its score takes only three values on headline-length text (`−1`, `0`, `+1`; 78% score
+exactly 0) and the dictionary carries 2,345 negative terms against 347 positive — an asymmetry built
+for 10-K risk language. This is a finding about applying a document-level dictionary to headlines,
+not evidence that a transformer reads financial language better.
+
+**The two acts do not connect, and that was derived in advance.** Act 1 separates the scorers; Act 2
+cannot (`delta = −2.43 bps [−6.88, +2.03]`). The
+[mathematical appendix](docs/mathematical-appendix.md) shows why: standardization puts the
+attenuation exponent at ½, and averaging ~337 headlines per session turns a *twofold* per-headline
+noise difference into a *1.034×* coefficient difference. The bridge is not refuted — it is not
+testable at this aggregation.
 
 Full write-up with every number traced to a file: [`report/report.md`](report/report.md).
 

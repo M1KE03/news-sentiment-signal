@@ -1,7 +1,7 @@
 # Reading the News with a Machine
 ## How three sentiment measurements differ, and what they add about the next session
 
-Act 2 is complete. Act 1 is not: it requires independent human labels that have not been collected, and no classification result is reported below. Every Act 2 number here is traceable to a file in `report/tables/`, and `report/tables/run_manifest.json` records the inputs, settings and code state that produced them.
+Both acts are complete. Every number here is traceable to a file in `report/tables/`, and `report/tables/run_manifest.json` records the inputs, settings and code state that produced the Act 2 results.
 
 ---
 
@@ -43,15 +43,52 @@ Three findings from assembly are worth stating because each changed a number. Th
 
 ### 4. Act 1 — classification quality
 
-**Not run. No result is reported.**
+**Table 1.** Macro-F1 and accuracy on **600 independently labelled headlines from this study's own collection** — not PhraseBank. 596 usable; 4 excluded as `unusable` and reported as a count. Class balance: 292 neutral (49%), 195 positive (33%), 109 negative (18%).
 
-The evaluation sample exists: 800 headlines drawn 2026-09-09 across 10 strata, 200 calibration / 600 evaluation, split by article group and stored as a file. The blind export carries `headline_id` and `text` only. What does not exist is labels, which require a person; the tooling to ingest them, fit calibration-only thresholds and compute the paired group bootstrap is implemented and tested against synthetic fixtures.
+| Scorer | macro-F1 | accuracy | negative F1 | neutral F1 | **positive F1** |
+|---|---:|---:|---:|---:|---:|
+| **FinBERT** | **0.594** | 0.609 | 0.573 | 0.664 | **0.546** |
+| Loughran–McDonald | 0.493 | 0.560 | 0.557 | 0.658 | **0.263** |
+| VADER | 0.424 | 0.472 | 0.323 | 0.558 | 0.390 |
 
-Until labels exist, **Table 1 and Figure 1 are not produced and no claim about relative classification quality is made anywhere in this report.** Two of the three scorers cannot even produce class predictions: LM and VADER need neutral thresholds fitted on the calibration part, and there is nothing to fit them against.
+**The primary contrast.**
 
-When it runs, the primary contrast is `macroF1(FinBERT) − macroF1(LM)` with a paired bootstrap resampling **article groups**, B = 10,000. The accuracy comparison uses the same group bootstrap; exact McNemar is supplementary, printed with the group-size distribution and the explicit note that its independence assumption is contradicted by this design's own grouping.
+> **`macroF1(FinBERT) − macroF1(LM) = +0.102, 95% pointwise [+0.050, +0.153]`**
+> Paired bootstrap resampling **article groups**, B = 10,000, n = 596 over 595 groups.
 
-**One limitation is already fixed and must be stated.** The full scoring pass completed on 2026-09-10, *before* any label was written. Validation protocol §5 permits labelling after scoring provided the cache is not consulted, and requires recording which case obtained; it is recorded in `data/annotation/provenance.md`, and the annotator's blindness confirmation must assert that the cache was not opened rather than merely that no score was shown.
+The interval excludes zero: FinBERT classifies these headlines better than the domain lexicon, by roughly 5 to 15 macro-F1 points.
+
+**Reported on both sets, as §6a requires** — the full evaluation set and the confident subset the annotator did not flag `hard`:
+
+| Set | n | difference | 95% pointwise |
+|---|---:|---:|---|
+| Full | 596 | +0.102 | [+0.050, +0.153] |
+| Confident (`hard = 0`) | 541 | +0.104 | [+0.052, +0.156] |
+
+The two agree to 0.002. **The gap does not come from the headlines a careful human could not resolve** — it holds on the ones whose direction was clear. That is the question the two-set split was prespecified to answer.
+
+**Figure 1.** Confusion matrices, three scorers side by side — and they carry the finding. In LM's true-positive row, **159 of 195 genuinely positive headlines are called neutral**: 83%. FinBERT's same row is 100 positive, 72 neutral, 23 negative.
+
+**Where the gap actually comes from, which is narrower than the headline number suggests.** FinBERT and LM are close on negative (0.573 vs 0.557) and neutral (0.664 vs 0.658). **The entire macro-F1 difference is the positive class.** The reason is visible in the calibration diagnostic rather than inferred: LM takes only **three distinct values** on headline-length text — `−1`, `0`, `+1` — because its score is `(pos − neg)/(pos + neg)` over dictionary matches, and a short headline usually contains either no sentiment word (78.3% of the calibration set, scoring exactly 0) or words of one sign only. The Loughran–McDonald lists carry **2,345 negative terms against 347 positive**, an asymmetry built for 10-K risk language. Applied to headlines, that asymmetry collapses the positive class.
+
+So the honest statement is not "the transformer reads financial language better". It is that **a document-level risk dictionary, applied to headlines, has almost no positive vocabulary to fire on**, and macro-F1 — which weights all three classes equally — makes that visible where accuracy does not.
+
+**Secondary contrasts**, descriptive and in no correction family (M3): FinBERT − VADER **+0.171** [+0.117, +0.226]; LM − VADER **+0.069** [+0.015, +0.125]. The ordering FinBERT > LM > VADER holds on every set and every comparison.
+
+**Accuracy is the weaker claim and is reported as such.** FinBERT − LM accuracy is **+0.049, 95% [0.000, 0.097]** — the lower bound sits exactly at zero. Accuracy is dominated by the 49% neutral majority, which both scorers handle similarly; macro-F1 is what surfaces the positive-class collapse. Where the two metrics disagree in strength, the report says so rather than quoting whichever is larger.
+
+**Exact McNemar is supplementary**, printed with its validity condition: statistic 95.0, **p = 0.058**, group sizes 594 singletons and 1 pair. It does not agree with the group bootstrap. Its independence assumption is contradicted by this design's own article-group structure (M4), so the bootstrap is primary and McNemar is shown for completeness, not as a tie-breaker.
+
+**Thresholds were fitted on the 200 calibration items only** and frozen in `config.VALIDATION_THRESHOLDS` before the evaluation set was scored: LM `[−1.00, 0.00]`, VADER `[−0.125, +0.225]`. FinBERT is never fitted; its class is the argmax over the three probabilities, never a threshold on the tone scalar, so the neutral probability stays decisive (B12).
+
+**One property of that fit belongs in the record.** LM's band is one of **1,600 grid pairs (48.2%) tied at the best calibration macro-F1** — but all 1,600 produce an *identical* classification, so the arbitrariness of the band never reaches the predictions. LM on headlines is effectively `sign(score)`. VADER's band is genuinely determined (3 tied pairs, same classification). Recorded in `report/tables/calibration_record.json`.
+
+**Limitations specific to Act 1, stated here and not only in §8.**
+
+- **The scorers are not compared at equal resolution.** On 198 calibration items FinBERT produces 198 distinct values, VADER 54, LM **3**. Part of any macro-F1 gap is that difference in granularity rather than a difference in reading.
+- **The rubric's framing is closer to FinBERT's training objective than to the lexicons'** (§6a). FinBERT was fine-tuned on PhraseBank, whose annotation instruction is the same investor-perspective question this rubric asks — *would this move the price?* — while LM and VADER score textual valence. This is separate from text contamination, which §2 treats on its own, and it is **not fixable by reframing**: a textual-valence rubric would favour the lexicons symmetrically. Some unknown part of +0.102 is this.
+- **One annotator, not independent of the analyst.** No second annotator, so **no Cohen's kappa and no measured label error rate**. Rubric v3 was adopted mid-project after a 60-item pilot under v1 flagged 34 of 60 `hard`; the v3 rate is 9.2% on the evaluation set. Labelling followed the full scoring pass, which §5 permits provided the cache is not consulted; the annotator confirms it was not. All sessions, deviations and the reconstructed timings are in `data/annotation/provenance_v2.json`.
+- **Ambiguity is real and measured rather than suppressed.** 55 of 600 items are flagged `hard`. For comparison, Financial PhraseBank achieves unanimous agreement on only 2,264 of 4,846 sentences (46.7%) using 5–8 annotators each.
 
 ### 5. Act 2 — association
 
@@ -158,7 +195,7 @@ At roughly 1.2 headlines per session against the market aggregate's 345, `S_t` f
 ### 8. Limitations
 
 - **Text exposure is unknown.** New human annotation would establish that the **labels** are independent of every model. It does **not** establish that the headline *text* was unseen: these are 2010–2019 headlines from the open web and no scorer's pretraining corpus is auditable at that granularity. This applies symmetrically to all three scorers.
-- **No Act 1 result.** Without labels, nothing in this report speaks to classification quality, and the attenuation bridge cannot be examined empirically at all.
+- **The attenuation bridge remains untested empirically.** Act 1 separates the scorers and Act 2 cannot, but §6 of the appendix shows the design compresses a twofold measurement-noise difference into ~3% of coefficient. So the bridge is not refuted by the null in Act 2 — it is simply not testable at daily aggregation with this corpus.
 - **Coverage drift.** Headline volume is not stationary over the sample; `n_t` enters no specification, but it shapes the precision of `S_t` and `d_t`.
 - **One market, one instrument.** SPY only. No cross-section, so nothing here speaks to single-name predictability.
 - **Association, not causation.** Nothing identifies a causal channel.
@@ -181,7 +218,9 @@ Stated plainly, because a null is a result and deserves to be written as one:
 2. **The claim that the study is precise enough to exclude effects beyond ±5 bps is fragile, and is reported as such.** It rests on a 0.1 bps margin; 5 of 7 sensitivities are boundary cases; and the point estimate falls to −0.17 bps under median aggregation. It survives the prespecified rule and is stated — but a reader should not treat it as established with the same confidence as point 1.
 3. **Nothing rejects in any family** — 14 secondary return tests, 4 exploratory Wald tests. The picture is uniform rather than mixed.
 4. **The two scorers cannot be separated** on their market association: `delta`'s interval spans −6.88 to +2.03 bps. The mathematical appendix gives a reason internal to the design — aggregation over hundreds of headlines compresses per-headline differences — so this is weak evidence about relative classification quality, not strong evidence of similarity.
-5. **Act 1 is unanswered** and is the study's main outstanding piece of work.
+5. **FinBERT classifies these headlines better than the domain lexicon**, by +0.102 macro-F1 [+0.050, +0.153] — the one interval in this study that excludes zero. It holds on the confident subset too (+0.104). But the entire gap is the **positive class**: Loughran–McDonald calls 83% of genuinely positive headlines neutral, because a 10-K risk dictionary carries 2,345 negative terms against 347 positive and takes only three distinct values on headline-length text. That is a statement about applying a document-level dictionary to headlines, not about transformers reading language better.
+
+6. **The two acts do not connect, and the appendix predicted that.** Act 1 separates the scorers cleanly; Act 2 cannot separate them at all (`delta = −2.43 bps [−6.88, +2.03]`). That is not a contradiction — [`mathematical-appendix.md`](../docs/mathematical-appendix.md) derives it in advance: standardization puts the attenuation exponent at ½, and averaging a median of 337 headlines per session compresses a **twofold** per-headline noise difference into a **1.034×** coefficient difference. A classification gap of this size was never going to survive daily aggregation, and the conditional hypothesis in §1 is therefore neither confirmed nor refuted — the design cannot test it at this aggregation.
 
 ---
 

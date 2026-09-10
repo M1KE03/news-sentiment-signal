@@ -146,16 +146,37 @@ def pilot_paths():
 LIVE_PROVENANCE = "provenance_v2.json"
 
 
-def test_the_live_provenance_template_exists_and_is_rejected_until_filled():
-    """The refusal is the feature. `validate_annotation_provenance` never
-    manufactures a human declaration, so the shipped template must fail."""
+def test_the_live_provenance_is_filled_and_validates():
+    """Superseded 2026-09-10: this file was a template that had to be *rejected*
+    until a person filled it. It is now filled, so the invariant flips -- every
+    human declaration must be present and the record must validate. What is
+    still enforced is that nothing was left as a placeholder."""
     import json as _json
 
     path = pilot_paths() / LIVE_PROVENANCE
-    assert path.exists(), "the ingestion code reads JSON; a template must be provided"
+    assert path.exists()
     record = _json.loads(path.read_text(encoding="utf-8"))
-    with pytest.raises(ValueError):
-        validate.validate_annotation_provenance(record)
+    validate.validate_annotation_provenance(
+        {k: v for k, v in record.items() if not k.startswith("_")})
+
+    for key in ("annotator_role", "label_source", "blind_to_model_outputs",
+                "independent_of_analyst", "scores_existed", "sessions"):
+        value = record[key]
+        assert value not in (None, "", []), f"{key} is still unfilled"
+        assert "TO BE COMPLETED" not in str(value)
+    assert record["label_source"] == "human"
+    assert record["sessions"], "annotation sessions must be recorded"
+
+
+def test_the_reconstructed_timings_are_flagged_as_reconstructed():
+    """Section 6 wants times written at labelling time. They were not, and a
+    record that hid that would be worse than one that admits it."""
+    import json as _json
+
+    record = _json.loads((pilot_paths() / LIVE_PROVENANCE).read_text(encoding="utf-8"))
+    joined = " ".join(record["deviations"]).lower()
+    assert "reconstructed" in joined
+    assert "overlap" in joined, "the overlapping sessions must be disclosed"
 
 
 def test_the_template_carries_the_verifiable_facts_already():
@@ -196,8 +217,10 @@ def test_the_superseded_pilot_template_says_so():
     assert "_superseded" in record
 
 
-def test_the_v2_worksheets_are_blank_and_preserve_presentation_order():
-    """Carrying v1 labels forward would make the v2 pass a review of v1."""
+def test_the_v2_worksheets_are_complete_and_preserve_presentation_order():
+    """Superseded 2026-09-10: these shipped blank and are now filled. The order
+    invariant is the one that still matters -- the worksheet must remain a
+    filter of the shuffled export, never a redraw or a re-sort."""
     blind = pd.read_csv(pilot_paths() / "to_label_primary.csv", dtype=str,
                         keep_default_na=False)
     split = pd.read_csv(pilot_paths() / "split_assignment.csv", dtype=str)
@@ -207,8 +230,10 @@ def test_the_v2_worksheets_are_blank_and_preserve_presentation_order():
         sheet = pd.read_csv(pilot_paths() / f"worksheet_v2_{name}.csv", dtype=str,
                             keep_default_na=False)
         assert len(sheet) == size
-        assert (sheet["label"] == "").all(), "answer cells must ship blank"
-        assert (sheet["notes"] == "").all()
+        assert (sheet["label"] != "").all(), "every item must be labelled"
+        assert set(sheet["label"]) <= {"positive", "negative", "neutral", "unusable"}
+        assert set(sheet["mixed"]) <= {"0", "1"}
+        assert set(sheet["hard"]) <= {"0", "1"}
         expected = blind[blind["headline_id"].map(part) == name]["headline_id"].tolist()
         assert sheet["headline_id"].tolist() == expected, (
             "the worksheet must be a filter of the shuffled export in its recorded "

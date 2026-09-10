@@ -129,17 +129,48 @@ def test_the_boundary_flag_travels_with_the_primary_result():
 # ------------------------------------------- what must NOT be claimed yet
 
 
-def test_no_document_claims_an_act_1_result():
-    """Act 1 has no labels. A macro-F1 number anywhere would be fabricated."""
+def test_the_act_1_numbers_match_the_published_table():
+    """Superseded 2026-09-10. These two tests previously asserted that NO
+    macro-F1 value appeared anywhere, because Act 1 had no labels and any such
+    number would have been fabricated. Act 1 has now run, so the guard flips
+    from "claims nothing" to "claims exactly what the file says"."""
+    path = config.REPORT / "tables" / "table1_act1_metrics.csv"
+    if not path.exists():
+        pytest.skip("Act 1 has not been evaluated in this checkout")
+    table = pd.read_csv(path)
+    full = table[table["set"] == "full"].set_index("scorer")
+
     for name, document in (("README", readme()), ("report", report())):
-        for line in document.splitlines():
-            if re.search(r"macro.?f1", line, re.I) and re.search(r"=\s*0?\.\d", line):
-                pytest.fail(f"{name} appears to state a macro-F1 value: {line.strip()!r}")
+        for scorer in ("finbert", "lm", "vader"):
+            value = f"{full.loc[scorer, 'macro_f1']:.3f}"
+            assert value in document, (
+                f"{name} does not carry {scorer}'s published macro-F1 {value}"
+            )
 
 
-def test_both_documents_say_act_1_produced_nothing():
+def test_the_act_1_primary_contrast_matches_its_table():
+    path = config.REPORT / "tables" / "table1b_act1_contrasts.csv"
+    if not path.exists():
+        pytest.skip("Act 1 has not been evaluated in this checkout")
+    contrasts = pd.read_csv(path)
+    row = contrasts[(contrasts["set"] == "full") &
+                    (contrasts["contrast"] == "finbert-lm")].iloc[0]
     for document in (readme(), report()):
-        assert re.search(r"no (classification )?result|not run|no labels", document, re.I)
+        assert f"{row['macro_f1_difference']:.3f}" in document
+        for endpoint in (row["macro_f1_lo95"], row["macro_f1_hi95"]):
+            assert f"{endpoint:.3f}" in document, f"interval endpoint {endpoint:.3f} missing"
+
+
+def test_the_act_1_confounds_travel_with_the_result():
+    """A +0.102 macro-F1 gap quoted bare would overstate what it establishes:
+    the entire difference is one class, and the rubric's framing is closer to
+    FinBERT's training objective than to the lexicons'."""
+    for name, document in (("README", readme()), ("report", report())):
+        lowered = document.lower()
+        assert "positive" in lowered and "class" in lowered
+        assert re.search(r"2,345|347", document), (
+            f"{name} should state the LM dictionary's negative/positive asymmetry"
+        )
 
 
 def _is_correction(line: str) -> bool:

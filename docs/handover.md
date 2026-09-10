@@ -25,7 +25,7 @@ The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-0
 1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
 2. **§5a** names the next increment and why it is next.
 3. **§6** is what you cannot do without a human.
-4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **544 passing, 0 skipped**, is the baseline.
+4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **546 passing, 0 skipped**, is the baseline.
 
 Three facts that will save you an hour:
 
@@ -258,6 +258,14 @@ Nothing rejects anywhere. Secondary family: smallest BH q 0.946, BY 1.000. RQ4 f
 
 **R14 closed A15's remaining half.** A failed run now publishes nothing and leaves the previous results intact; the manifest is written last and is the commit point; a results directory without one cannot be quoted as current. Panels carry the digests and settings they were built under, so a stale panel is refused rather than relabelled with current config — which was A15's specific concern and is invisible to a schema check.
 
+### R13a — Act 1 measured, and the two acts do not connect
+
+**`macroF1(FinBERT) − macroF1(LM) = +0.102, 95% [+0.050, +0.153]`**, n = 596 over 595 article groups; **+0.104** on the `hard = 0` subset, agreeing to 0.002. The only interval in this study that excludes zero.
+
+**The entire gap is the positive class.** FinBERT and LM are within 0.02 on negative and neutral; LM's positive F1 is 0.263 against FinBERT's 0.546, and it calls **83% of genuinely positive headlines neutral**. The cause was already visible at calibration: LM takes three distinct values on headline text (78.3% exactly zero), and its dictionary carries 2,345 negative terms to 347 positive. This is a finding about applying a 10-K risk dictionary to headlines, not about transformers reading better — and the distinction is enforced by a test that requires the explanation to travel with the number.
+
+**Act 1 separates the scorers; Act 2 cannot** (`delta = −2.43 bps [−6.88, +2.03]`). R12 derived that before either ran: aggregation over ~337 headlines per session compresses a twofold noise difference into 1.034× of coefficient. The bridge is untestable at this aggregation rather than refuted.
+
 ## 4. Checklist against the implementation plan
 
 Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigger)
@@ -346,7 +354,7 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R11 | — | 🟡 **Pilot done.** 54 headlines/s, 4.49 h projected, 0.45 % truncation, 111 MB; 10-session chunk scored, verified, resumed. **Full pass awaits the user's D4/budget decision** |
 | R12 | — | ✅ Attenuation derivation + six-case simulation. Standardization gives exponent 1/2; aggregation over 337 headlines compresses a 2x noise gap to 1.034x; bounded scores **amplify** rather than attenuate |
 | — | — | **8 of 15 findings' repairs remain**: R11–R15. A13 and A14 closed at R10/R09 |
-| R13a | — | ⬜ **Blocked on human labels.** Pilot labelled under v1 and flagged 34/60 `hard` → **rubric v2** (rules 11–16). v2 worksheets built (200 + 600), instructions in `HOW_TO_LABEL.md`, stop point after calibration |
+| R13a | — | ✅ **800 headlines labelled.** `macroF1(FinBERT) − macroF1(LM) = +0.102 [+0.050, +0.153]`, n = 596; +0.104 on the confident subset. Entire gap is the positive class — LM calls 83% of positives neutral |
 | R13b | — | ✅ Act 2 run. Primary **−1.74 bps [−4.90, +1.42]**, informative null, **boundary case flagged**. Nothing rejects in any family |
 | R14 | A15 | ✅ Staged publication, run manifest, panel provenance. A failed run publishes nothing |
 | R15 | — | ✅ Report written against the published tables; **Act 2 robustness suite run** — 2 of 5 exhibits informative, 1 power-bounded, 2 inapplicable, all reported as such; README Findings replaced; [`reproduction.md`](reproduction.md) + 22 tests holding the docs to the code |
@@ -425,7 +433,7 @@ Two corrections came out of it, both recorded: the earlier "0.05% malformed time
 
 ## 5a. The next increment
 
-**R13a** — and it needs the user's 60 pilot labels, not more code. Every other increment is complete. The handoff is prepared and tested end to end: `pilot_worksheet.csv`, `provenance_pilot.json` (rejected until the human declarations are filled), and an ingestion path dry-run against the exact file a spreadsheet will produce.
+**Nothing is blocked.** All 29 increments are complete and both acts are estimated. Remaining work is optional: a second annotator for Cohen's kappa (needs another person, 160 items), an event-category breakdown of Act 1 (mechanical, no annotator cost), and committing the session.
 
 The corpus track is closed and Act 1's sample is drawn, so what remains on the critical path with **no external dependency** is the inference track: seven fixture-based increments that gate every Act 2 result.
 
