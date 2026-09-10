@@ -82,7 +82,7 @@ def contemporaneous(
         raise RuntimeError(
             "the contemporaneous (same-day) specification is inadmissible for "
             "this corpus: config.RQ2_ADMISSIBLE is False because no selected "
-            "source has usable intraday timestamps (docs/data-audit-fnspid.md). "
+            "source has usable intraday timestamps (docs/archive/data-audit-fnspid.md). "
             "Without a within-day information boundary a same-day coefficient "
             "has no interpretation. Pass allow_inadmissible=True only for a "
             "deliberate, labelled methodological exhibit."
@@ -678,7 +678,7 @@ def hac_meat(
 
     **This is the only place the spacing rule is implemented.** R07c's argument
     rests on the two conventions being one computation with one differing input
-    (`hac-spacing-decision.md`); a second copy of this loop would quietly make
+    (`archive/hac-spacing-decision.md`); a second copy of this loop would quietly make
     that false, so the stacked estimator calls this rather than reimplementing
     the pairing.
     """

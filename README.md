@@ -11,13 +11,13 @@ finding a signal.
 
 > **Status: both acts complete.** The protocols are written and frozen,
 > the corpus is assembled, scored and censused, and the defects found by the
-> [2026-09-09 audit](docs/project-audit-2026-09-09.md) are repaired — 29 of 29 increments.
+> [2026-09-09 audit](docs/archive/project-audit-2026-09-09.md) are repaired — 29 of 29 increments.
 > **869,183 headlines scored by all three scorers; 800 headlines labelled by hand; both acts
 > estimated with every choice prespecified.** 544 tests pass, 0 skip.
 >
-> Current state lives in [`docs/handover.md`](docs/handover.md); the live plan is the
-> [repair sequence](docs/audit-implementation-plan-2026-09-09.md); the clean-clone procedure is
-> [`docs/reproduction.md`](docs/reproduction.md).
+> Current state lives in [`docs/archive/handover.md`](docs/archive/handover.md); the live plan is the
+> [repair sequence](docs/archive/audit-implementation-plan-2026-09-09.md); the clean-clone procedure is
+> [`docs/archive/reproduction.md`](docs/archive/reproduction.md).
 
 ---
 
@@ -36,7 +36,7 @@ session's SPY log return, conditional on a frozen control set? One primary test,
 points per standard deviation with a pointwise Newey–West interval; 14 secondary (scorer, horizon)
 tests under BH with Benjamini–Yekutieli alongside. Same-day association is **structurally
 suppressed** — no FNSPID sub-corpus is both intraday-stamped and relevant, so the timestamps cannot
-support it. Full specification: [`docs/inference-protocol.md`](docs/inference-protocol.md).
+support it. Full specification: [`docs/archive/inference-protocol.md`](docs/archive/inference-protocol.md).
 
 **The bridge, and its status as a hypothesis.** Sentiment scores are noisy measurements of a latent
 quantity, and classical errors-in-variables attenuates a coefficient toward zero in proportion to
@@ -84,7 +84,7 @@ someone has looked at it.
 
 **The two scorers cannot be separated.** `delta = β_FinBERT − β_LM = −2.43 bps, 95% [−6.88, +2.03]`,
 estimated on identical observations with the cross-equation HAC covariance. The
-[mathematical appendix](docs/mathematical-appendix.md) gives a reason internal to the design:
+[mathematical appendix](docs/archive/mathematical-appendix.md) gives a reason internal to the design:
 averaging a median of 337 headlines per session compresses a *twofold* per-headline noise difference
 into a *1.034×* coefficient difference. So this is weak evidence about relative classification
 quality, not strong evidence of similarity.
@@ -103,7 +103,7 @@ collection, 596 usable, thresholds fitted on a separate 200-item calibration par
 > come from the headlines a careful human could not resolve.
 
 **But the whole gap is one class, and the reason is mechanical.** FinBERT and LM are within 0.02 on
-negative and neutral. Loughran–McDonald calls **83% of genuinely positive headlines neutral**,
+negative and neutral. Loughran–McDonald calls **81.5% of genuinely positive headlines neutral**,
 because its score takes only three values on headline-length text (`−1`, `0`, `+1`; 78% score
 exactly 0) and the dictionary carries 2,345 negative terms against 347 positive — an asymmetry built
 for 10-K risk language. This is a finding about applying a document-level dictionary to headlines,
@@ -111,7 +111,7 @@ not evidence that a transformer reads financial language better.
 
 **The two acts do not connect, and that was derived in advance.** Act 1 separates the scorers; Act 2
 cannot (`delta = −2.43 bps [−6.88, +2.03]`). The
-[mathematical appendix](docs/mathematical-appendix.md) shows why: standardization puts the
+[mathematical appendix](docs/archive/mathematical-appendix.md) shows why: standardization puts the
 attenuation exponent at ½, and averaging ~337 headlines per session turns a *twofold* per-headline
 noise difference into a *1.034×* coefficient difference. The bridge is not refuted — it is not
 testable at this aggregation.
@@ -199,9 +199,11 @@ src/preflight.py     the dependency inventory and the artifact registry
 src/plots.py         one function per numbered figure; no plotting code anywhere else
 tests/               the firewall + scorer range/determinism/cache checks
 notebooks/           01 audit · 02 validation · 03 signal · 04 volume+vol · 05 robustness
-docs/                the frozen protocols, the audit, and the repair sequence
+docs/specification.md   frozen decisions, code map, invariants, safe-change procedure
+docs/validation-protocol.md  the annotation rubric (hash-locked; do not edit)
+docs/archive/        the decision log, the audit, the execution record, the contracts
 report/report.md     the two-page write-up
-future-work.md       where scope creep goes to die quietly
+FINDINGS.md          what the study found, in plain language with the mathematics
 ```
 
 ## Method notes
@@ -211,7 +213,7 @@ future-work.md       where scope creep goes to die quietly
   trading week, with `L ∈ {0, 1, 10}` and the data-driven plug-in bandwidth reported alongside as
   sensitivities rather than substituted for it. A lag counts **exchange sessions**, not rows of the
   analysis sample — the two differ wherever the sample has gaps, and only the first makes "one
-  trading week" true ([the spacing decision](docs/hac-spacing-decision.md)).
+  trading week" true ([the spacing decision](docs/archive/hac-spacing-decision.md)).
 - **One primary test, then a closed family of 14.** FinBERT at h = 1 is the primary and carries no
   correction, because a family of one needs none. The remaining 14 (scorer, horizon) pairs are
   corrected together: Bonferroni controls the probability of *any* false positive and sacrifices
@@ -244,7 +246,7 @@ future-work.md       where scope creep goes to die quietly
 
 - Financial PhraseBank — Malo et al. (2014), via HuggingFace `financial_phrasebank`.
 - FinBERT — Araci (2019), model `ProsusAI/finbert`. Used as published; nothing is fine-tuned here.
-- Loughran–McDonald master dictionary — Loughran & McDonald (2011), from Notre Dame SRAF; [acquired release, hash and reproduction notes](docs/lm-dictionary-provenance.md).
+- Loughran–McDonald master dictionary — Loughran & McDonald (2011), from Notre Dame SRAF; [acquired release, hash and reproduction notes](docs/archive/lm-dictionary-provenance.md).
 - Headlines — FNSPID or the Kaggle Benzinga headline set (D1, locked at Stage 0).
 - Prices — SPY and ^VIX via `yfinance`.
 

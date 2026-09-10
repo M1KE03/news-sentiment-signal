@@ -152,7 +152,7 @@ ARTIFACTS: tuple[Artifact, ...] = (
              "the single analysis table every Act 2 number is read from"),
     Artifact("lm_dictionary", config.LM_DICT_PATH,
              "download by hand from the Notre Dame SRAF site "
-             "(see docs/lm-dictionary-provenance.md)",
+             "(see docs/archive/lm-dictionary-provenance.md)",
              "Loughran-McDonald word lists; no stable URL exists",
              external=True),
     Artifact("annotation_sample", config.ANNOTATION_DIR / "to_label_primary.csv",
@@ -236,7 +236,7 @@ def require_artifacts(stage: str) -> None:
     if any(a.external for a in missing):
         lines.append(
             "One or more of these cannot be produced by any command in this "
-            "repository and needs a person; see docs/handover.md section 6."
+            "repository and needs a person; see docs/archive/handover.md section 6."
         )
     raise PreflightError("\n".join(lines))
 
@@ -340,7 +340,7 @@ def check_lm_dictionary() -> str:
         raise PreflightError(
             f"{config.LM_DICT_PATH} has SHA-256 {actual}, but config.LM_DICT_SHA256 "
             f"pins {config.LM_DICT_SHA256}. A different release measures different "
-            "words; see docs/lm-dictionary-provenance.md."
+            "words; see docs/archive/lm-dictionary-provenance.md."
         )
     return f"{config.LM_DICT_PATH}: verified {actual}"
 

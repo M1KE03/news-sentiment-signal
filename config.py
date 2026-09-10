@@ -130,7 +130,7 @@ TZ_MARKET = "America/New_York"
 MARKET_CLOSE_ET = time(16, 0)
 # D6 fixes the close at 16:00 ET even on half-days. Using each session's actual
 # close is strictly more accurate but is a change to a locked decision -- if you
-# flip this, log the change and the date in future-work.md.
+# flip this, log the change and the date in docs/archive/research-review-decision-log.md.
 USE_ACTUAL_SESSION_CLOSE = False
 
 # ---------------------------------------------------------- D7 scorers ----

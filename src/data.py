@@ -46,7 +46,7 @@ _PARSED_COLUMNS = [c for c in HEADLINE_COLUMNS if c != "source_row_id"]
 # The standalone "benzinga" spec is gone: there is no separate Benzinga dataset
 # in this study. Benzinga is a *sub-corpus* of FNSPID's All_external.csv,
 # selected by URL host, and the file also carries Reuters, Bloomberg, Zacks,
-# SeekingAlpha and the Russian-language lenta.ru. See docs/data-audit-fnspid.md.
+# SeekingAlpha and the Russian-language lenta.ru. See docs/archive/data-audit-fnspid.md.
 _SOURCE_SPEC = {
     "fnspid": {
         "text": "Article_title",
@@ -441,7 +441,7 @@ def dedup(
 ):
     """Collapse duplicate headlines, keeping a stated representative and lineage.
 
-    Implements the [dedup lineage contract](../docs/dedup-lineage-contract.md)
+    Implements the [dedup lineage contract](../docs/archive/dedup-lineage-contract.md)
     (R03b, audit finding A12). Four things changed from the previous version,
     each of which was reproduced against the running code first.
 

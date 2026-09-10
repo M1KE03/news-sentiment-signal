@@ -82,7 +82,7 @@ def build_panel() -> pd.DataFrame:
             f"score cache declares no provenance for {undeclared}.\n"
             f"  cache: {config.SCORES_PARQUET}\n"
             "  Re-run scoring so the cache records which measurement produced "
-            "each column; see docs/scoring-checkpoint-contract.md."
+            "each column; see docs/archive/scoring-checkpoint-contract.md."
         )
 
     calendar = data.trading_calendar(config.SAMPLE_START, config.SAMPLE_END)
@@ -173,7 +173,7 @@ def run_analysis(panel: pd.DataFrame, run: publish.StagedRun) -> dict:
         print(
             "RQ2 suppressed: no selected source has usable intraday timestamps, "
             "so the same-day specification is not estimated and Table 2 is not "
-            "produced (docs/data-audit-fnspid.md)."
+            "produced (docs/archive/data-audit-fnspid.md)."
         )
 
     # --- Table 3: unadjusted primary + 14 secondary return tests (BH/BY) --

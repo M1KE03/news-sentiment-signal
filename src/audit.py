@@ -1,6 +1,6 @@
 """Dataset audit (B03). The unit of audit is the **source**, not the file.
 
-Rewritten after the B03 audit of FNSPID (docs/data-audit-fnspid.md). The earlier
+Rewritten after the B03 audit of FNSPID (docs/archive/data-audit-fnspid.md). The earlier
 version applied the intraday gate to a whole file, which is the wrong unit:
 `All_external.csv` concatenates five-plus sub-corpora with different languages,
 schemas and timestamp behaviour. Judged as one file it looks partly intraday,
