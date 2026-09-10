@@ -33,7 +33,7 @@ def nw_ols(y, X, maxlags: int = config.NW_MAXLAGS):
     return sm.OLS(yy, XX).fit(cov_type="HAC", cov_kwds={"maxlags": maxlags})
 
 
-LAG_COLUMNS = ("ret_lag1", "parkinson_lag1", "log_turnover_lag1")
+LAG_COLUMNS = ("ret_lag1", "rv_parkinson_lag1", "log_volume_lag1")
 
 
 def _require_lags(panel: pd.DataFrame) -> None:
@@ -91,8 +91,8 @@ def contemporaneous(
         {
             f"s_{scorer}": panel[f"s_{scorer}"],
             "ret_lag1": panel["ret_lag1"],
-            "parkinson_lag1": panel["parkinson_lag1"],
-            "log_turnover_lag1": panel["log_turnover_lag1"],
+            "rv_parkinson_lag1": panel["rv_parkinson_lag1"],
+            "log_volume_lag1": panel["log_volume_lag1"],
         }
     )
     return nw_ols(panel["ret"], X, maxlags=maxlags)
@@ -109,8 +109,8 @@ def predictive(panel: pd.DataFrame, scorer: str, horizon: int, maxlags: int = co
         {
             f"s_{scorer}": df[f"s_{scorer}"],
             "ret": df["ret"],
-            "parkinson": df["parkinson"],
-            "log_turnover": df["log_turnover"],
+            "rv_parkinson": df["rv_parkinson"],
+            "log_volume": df["log_volume"],
         }
     )
     return nw_ols(df[f"ret_lead{horizon}"], X, maxlags=maxlags)
@@ -274,28 +274,33 @@ def horse_race(panel: pd.DataFrame, horizon: int = 1, maxlags: int = config.NW_M
             "s_finbert": panel["s_finbert"],
             "s_lm": panel["s_lm"],
             "ret": panel["ret"],
-            "parkinson": panel["parkinson"],
-            "log_turnover": panel["log_turnover"],
+            "rv_parkinson": panel["rv_parkinson"],
+            "log_volume": panel["log_volume"],
         }
     )
     return nw_ols(panel[f"ret_lead{horizon}"], X, maxlags=maxlags)
 
 
 def volatility_spec(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLAGS):
-    """Section 6.4, volatility: next-day Parkinson on level, intensity and dispersion."""
+    """Section 6.4, range variance: next-day rv_parkinson on level, intensity and dispersion.
+
+    `rv_parkinson` is the intraday range-based variance proxy, not total daily
+    volatility: it uses the high-low range only, so variation within the range
+    and overnight moves are invisible to it (P22).
+    """
     X = pd.DataFrame(
         {
             f"s_{scorer}": panel[f"s_{scorer}"],
             f"abs_s_{scorer}": panel[f"s_{scorer}"].abs(),
             f"d_{scorer}": panel[f"d_{scorer}"],
-            "parkinson": panel["parkinson"],
+            "rv_parkinson": panel["rv_parkinson"],
         }
     )
-    return nw_ols(panel["parkinson_lead1"], X, maxlags=maxlags)
+    return nw_ols(panel["rv_parkinson_lead1"], X, maxlags=maxlags)
 
 
 def volume_spec(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLAGS):
-    """Section 6.4, volume: next-day detrended turnover, same regressors plus |ret_t|.
+    """Section 6.4, volume: next-day detrended log volume, same regressors plus |ret_t|.
 
     The dispersion coefficient is the one to read first: disagreement predicting
     volume is the most plausible positive finding in the project, and it is a
@@ -306,11 +311,11 @@ def volume_spec(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLA
             f"s_{scorer}": panel[f"s_{scorer}"],
             f"abs_s_{scorer}": panel[f"s_{scorer}"].abs(),
             f"d_{scorer}": panel[f"d_{scorer}"],
-            "log_turnover_detrended": panel["log_turnover_detrended"],
+            "log_volume_detrended": panel["log_volume_detrended"],
             "abs_ret": panel["ret"].abs(),
         }
     )
-    return nw_ols(panel["log_turnover_detrended_lead1"], X, maxlags=maxlags)
+    return nw_ols(panel["log_volume_detrended_lead1"], X, maxlags=maxlags)
 
 
 def analysis_sample(panel: pd.DataFrame) -> tuple[pd.DataFrame, dict]:

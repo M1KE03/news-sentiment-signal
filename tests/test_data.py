@@ -146,8 +146,8 @@ def _panel():
         daily[f"d_{s}"] = rng.uniform(0.1, 0.4, n)
     mkt = pd.DataFrame(
         {"date": cal, "close_adj": 100 + np.arange(n, dtype=float),
-         "ret": rng.normal(0, 0.01, n), "parkinson": rng.uniform(1e-5, 5e-4, n),
-         "volume": rng.uniform(5e7, 2e8, n), "log_turnover": rng.normal(18.4, 0.2, n),
+         "ret": rng.normal(0, 0.01, n), "rv_parkinson": rng.uniform(1e-5, 5e-4, n),
+         "volume": rng.uniform(5e7, 2e8, n), "log_volume": rng.normal(18.4, 0.2, n),
          "vix_close": rng.uniform(10, 30, n)}
     )
     return align.build_panel(daily, mkt)

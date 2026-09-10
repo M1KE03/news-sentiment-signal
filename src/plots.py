@@ -151,9 +151,9 @@ def figure2_lag_family(
 def figure3_dispersion_volume(panel: pd.DataFrame, scorer: str = "finbert") -> plt.Figure:
     """Figure 3: dispersion d_t against next-day detrended volume, with a fitted line."""
     use_style()
-    df = panel[[f"d_{scorer}", "log_turnover_detrended_lead1"]].dropna()
+    df = panel[[f"d_{scorer}", "log_volume_detrended_lead1"]].dropna()
     x = df[f"d_{scorer}"].to_numpy()
-    y = df["log_turnover_detrended_lead1"].to_numpy()
+    y = df["log_volume_detrended_lead1"].to_numpy()
     fig, ax = plt.subplots()
     ax.scatter(x, y, s=8, alpha=0.35, color="#1f4e79", edgecolors="none")
     if len(x) > 2:
@@ -163,7 +163,7 @@ def figure3_dispersion_volume(panel: pd.DataFrame, scorer: str = "finbert") -> p
                 label=f"slope = {slope:.3f}")
         ax.legend(frameon=False)
     ax.set_xlabel(f"within-day sentiment dispersion $d_t$ ({SCORER_LABEL.get(scorer, scorer)})")
-    ax.set_ylabel("next-day detrended log turnover")
+    ax.set_ylabel("next-session detrended log volume")
     # P24: this asserted RQ4's answer. It states the axes instead.
     ax.set_title("Next-session detrended volume against within-day tone dispersion")
     fig.tight_layout()
@@ -174,7 +174,20 @@ def figure4_context(panel: pd.DataFrame, episodes: dict[str, str] | None = None,
                     scorer: str = "finbert", smooth: int = 21) -> plt.Figure:
     """Figure 4: S_t and SPY over the sample, episodes marked. Context, not evidence."""
     use_style()
-    df = panel.dropna(subset=[f"s_{scorer}"]).copy()
+    # P29: this used `df["close_adj"] if "close_adj" in df else np.nan`, which
+    # plotted a scalar against a date series -- the promised price curve simply
+    # would not appear, and nothing said so. The panel carries `close_adj`, so
+    # its absence means the panel is wrong and the figure should say which.
+    if "close_adj" not in panel.columns:
+        raise KeyError(
+            "panel has no 'close_adj'; the context figure needs the adjusted "
+            "close (align.PANEL_COLUMNS supplies it). Rebuild the panel."
+        )
+    df = panel.dropna(subset=[f"s_{scorer}", "close_adj"]).copy()
+    if df.empty:
+        raise ValueError(
+            f"no session has both s_{scorer} and close_adj; nothing to plot."
+        )
     fig, ax = plt.subplots(figsize=(11, 5))
     ax.plot(df["date"], df[f"s_{scorer}"].rolling(smooth, min_periods=1).mean(),
             color="#1f4e79", lw=1.4, label=f"$S_t$ ({smooth}-day mean)")
@@ -183,8 +196,7 @@ def figure4_context(panel: pd.DataFrame, episodes: dict[str, str] | None = None,
     ax.set_xlabel("")
 
     ax2 = ax.twinx()
-    ax2.plot(df["date"], df["close_adj"] if "close_adj" in df else np.nan,
-             color="#999999", lw=1.1, label="SPY")
+    ax2.plot(df["date"], df["close_adj"], color="#999999", lw=1.1, label="SPY")
     ax2.set_ylabel("SPY (adjusted close)")
     ax2.grid(False)
 

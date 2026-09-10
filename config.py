@@ -150,9 +150,11 @@ FINBERT_POSTDATES_SAMPLE = True
 FINBERT_BATCH_SIZE = 32
 FINBERT_MAX_LENGTH = 64      # truncation is safe: these are headlines
 
-# UNRESOLVED (B04). SRAF distributes the master dictionary behind a non-stable
-# link, so it must be fetched by hand; record the release here once it is.
-LM_DICT_VERSION: str | None = None
+# Acquired from the CSV linked by Notre Dame SRAF on 2026-09-10.
+# This release postdates the sample and is used for retrospective measurement.
+# Full acquisition evidence: docs/lm-dictionary-provenance.md.
+LM_DICT_VERSION = "1993-2025 (March 2026)"
+LM_DICT_SHA256 = "e2d1328682bab7d2187684fb9f5420bb730401c9eefc00daf835edd203f4859d"
 
 # --------------------------------------------- D8/D9 daily aggregation ----
 

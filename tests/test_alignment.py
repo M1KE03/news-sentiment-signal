@@ -154,9 +154,9 @@ def test_leads_are_pure_shifts_and_never_leak():
             "date": CALENDAR,
             "close_adj": np.linspace(100, 105, len(CALENDAR)),
             "ret": np.linspace(0.001, 0.006, len(CALENDAR)),
-            "parkinson": np.linspace(1e-4, 6e-4, len(CALENDAR)),
+            "rv_parkinson": np.linspace(1e-4, 6e-4, len(CALENDAR)),
             "volume": np.linspace(1e8, 1.5e8, len(CALENDAR)),
-            "log_turnover": np.log(np.linspace(1e8, 1.5e8, len(CALENDAR))),
+            "log_volume": np.log(np.linspace(1e8, 1.5e8, len(CALENDAR))),
             "vix_close": np.linspace(12, 18, len(CALENDAR)),
         }
     )

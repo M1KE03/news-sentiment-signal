@@ -35,9 +35,9 @@ def _market(dates=CAL, rets=RETS) -> pd.DataFrame:
             "date": dates,
             "close_adj": 100 + np.arange(n, dtype=float),
             "ret": rets[:n],
-            "parkinson": np.linspace(1e-4, 6e-4, n),
+            "rv_parkinson": np.linspace(1e-4, 6e-4, n),
             "volume": np.full(n, 1e8),
-            "log_turnover": np.log(np.linspace(1e8, 1.5e8, n)),
+            "log_volume": np.log(np.linspace(1e8, 1.5e8, n)),
             "vix_close": np.linspace(12, 18, n),
         }
     )

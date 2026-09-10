@@ -2,7 +2,19 @@
 
 Recorded: 2026-09-09.
 
-Last updated: 2026-09-09, after R01c specification. Architecture approval for R01d is pending; B22 remains blocked on the environment.
+Last updated: 2026-09-10, dictionary acquisition and pilot handoff. R01d and later repairs are recorded below; the old PyTorch blocker is resolved.
+
+## Dependency resolution — dictionary and annotation pilot, 2026-09-10
+
+**Authorization:** user requested “please fix the blocked by side” and answered “I will label the pilot.”
+
+**Completed:** downloaded the CSV linked by the official Notre Dame SRAF page, validated it, placed the unmodified bytes at `config.LM_DICT_PATH`, and recorded the 1993–2025/March 2026 release plus SHA-256. Dictionary: 86,553 entries; 347 positive and 2,345 negative terms. The existing scorer passed a synthetic positive/negative/no-hit check. [Full acquisition provenance](lm-dictionary-provenance.md). This release is retrospective and was not selected using sentiment–return results.
+
+**Pilot handoff:** prepared `data/annotation/pilot_worksheet.csv` and instructions from existing frozen IDs, preserving blind presentation order. Verified all 60 IDs are unique calibration items; labels and flags remain blank. No draw/split was repeated and no annotation headline was scored. The user committed to this pilot, not yet to full annotation or a second annotator.
+
+**Verification:** suite after acquisition/configuration update: **246 passed, 0 skipped**. Rechecked dictionary SHA-256, worksheet order/calibration membership, blank response fields and new documentation links. Diff whitespace check passed. Additional source edits appeared in the shared working tree during this task; this dependency update did not modify those analysis modules.
+
+**Corrected dependency statement:** R06b/B15 implementation does not require real labels; synthetic paired fixtures can verify it. R13a requires actual independent labels and the implemented validation path. R11's dictionary prerequisite is resolved, but readiness/preceding repairs and a measured pilot remain. No full scoring, real regression, environment changes or Git writes were performed.
 
 ## Audit repair checkpoint — R01c
 

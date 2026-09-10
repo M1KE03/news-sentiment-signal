@@ -714,9 +714,9 @@ def load_market(
     out.index.name = "date"
     out["close_adj"] = on_cal["Close"].astype(float)
     out["ret"] = returns_on_calendar(spy["Close"], cal)
-    out["parkinson"] = (np.log(on_cal["High"] / on_cal["Low"]) ** 2) / (4 * np.log(2))
+    out["rv_parkinson"] = (np.log(on_cal["High"] / on_cal["Low"]) ** 2) / (4 * np.log(2))
     out["volume"] = on_cal["Volume"]
-    out["log_turnover"] = np.log(out["volume"].replace(0, np.nan))
+    out["log_volume"] = np.log(out["volume"].replace(0, np.nan))
     out["vix_close"] = (
         vix["Close"].reindex(cal).astype(float) if not vix.empty else np.nan
     )

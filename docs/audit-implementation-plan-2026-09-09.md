@@ -4,6 +4,18 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-09
 
+### Dependency update — 2026-09-10
+
+The user requested resolution of the “Blocked by” items and volunteered to label the pilot. Acquired and validated the official LM 1993–2025 CSV (March 2026), pinned release and SHA-256 in `config.py`; see [dictionary provenance](lm-dictionary-provenance.md). Created a blank [60-item pilot worksheet](../data/annotation/pilot_worksheet.csv) and [instructions](../data/annotation/PILOT_README.md) from the frozen sample. No sample redraw, model labels or empirical results.
+
+| Increment | Current dependency |
+|---|---|
+| R06b — label ingestion, paired metrics | **Implementation ready:** use synthetic fixtures. Actual calibration/evaluation waits for human labels |
+| R13a — empirical validation | Dictionary resolved; independent calibration/evaluation labels and R06b implementation still required. User is starting with the 60-item pilot |
+| R11 — pilot/bounded scoring | Dictionary and model-environment blockers resolved; readiness and preceding implementation checks remain. No full scoring authorized or run in this update |
+
+This changes dependency status, not the count of completed research increments.
+
 **R06a complete (latest). R01a–R01d, R02, R03a–R03d, R04a, R04b, R05 and R06a complete — 13 of 30.**
 
 ### R06a — the blind annotation sample is drawn
@@ -80,7 +92,7 @@ holds** — no year below tolerance, one structural zero-news session.
 `torch 2.14.0+cpu` and `transformers 5.16.1` now load and FinBERT runs. The
 seven tests that had skipped since B22 execute for the first time, so the suite
 reports **0 skipped**. **B22, R10 and R11 are unblocked.** Two external
-dependencies remain: the Loughran–McDonald dictionary and a named annotator.
+dependencies remained at that checkpoint: the dictionary and a named annotator. The 2026-09-10 update above records dictionary acquisition and the user's pilot-labeling commitment; completed labels remain pending.
 
 On its first real execution one of those tests failed, and it was not a code
 defect. `test_finbert_gets_the_documented_hard_cases_right` asserted that
@@ -431,6 +443,6 @@ Stop with a reviewable diff and test results. R01b then closes the default-call 
 
 Cache repairs; pinned acquisition tooling on mocked inputs; census and dedup provenance; market-loader tests; complete-score gates; protocol amendment drafts; annotation tooling; synthetic paired validation; panel and inference fixtures; precision and family logic; the mathematical demonstration; current documentation; preflight and reproduction scaffolding.
 
-External dependencies remain a usable FinBERT execution environment, the actual LM dictionary and release identity, and independent human labels. Market acquisition also needs yfinance installed in the selected environment and a recorded download. I can prepare and validate those workflows; none of their empirical outputs is claimed complete here.
+The model environment is usable and the actual LM dictionary/release are now available. Independent human labels remain pending, starting with the user's 60-item pilot. Market acquisition still requires a recorded download in the selected environment. R06b's implementation can proceed with synthetic fixtures; its empirical outputs wait for labels.
 
 The repair program spans multiple reviewable sessions. A credible estimate for full scoring and annotation should follow the measured pilot and annotator throughput, rather than repeat the original one-week estimate.

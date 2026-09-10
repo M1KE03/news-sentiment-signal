@@ -21,11 +21,67 @@ PANEL_COLUMNS = (
     + [f"d_{n}" for n in config.SCORERS]
     + ["ret", "ret_lag1"]
     + [f"ret_lead{h}" for h in config.HORIZONS]
-    + ["parkinson", "parkinson_lag1", "parkinson_lead1"]
-    + ["log_turnover", "log_turnover_lag1"]
-    + ["log_turnover_detrended", "log_turnover_detrended_lead1"]
+    + ["rv_parkinson", "rv_parkinson_lag1", "rv_parkinson_lead1"]
+    + ["log_volume", "log_volume_lag1"]
+    + ["log_volume_detrended", "log_volume_detrended_lead1"]
     + ["close_adj", "vix_close"]
 )
+
+# The market columns `build_panel` cannot construct and will not invent. Their
+# absence is a broken input, not a missing value, so it raises rather than
+# NaN-filling: an all-NaN control column would drop every observation at the
+# eligibility stage and be reported as a sample-size fact instead of a defect.
+REQUIRED_MARKET_COLUMNS = ("ret", "rv_parkinson", "log_volume", "close_adj")
+
+# B16/P22 renames (inference protocol Section 10). Names must match formulas:
+# share volume is not turnover, and the Parkinson estimator is a range-based
+# variance proxy, not total daily volatility. Any frame still using the old
+# names predates the rename, so its `log_turnover` is not this panel's
+# `log_volume_detrended` input and its numbers cannot be assumed comparable.
+LEGACY_COLUMN_RENAMES = {
+    "log_turnover": "log_volume",
+    "log_turnover_lag1": "log_volume_lag1",
+    "log_turnover_detrended": "log_volume_detrended",
+    "log_turnover_detrended_lead1": "log_volume_detrended_lead1",
+    "parkinson": "rv_parkinson",
+    "parkinson_lag1": "rv_parkinson_lag1",
+    "parkinson_lead1": "rv_parkinson_lead1",
+}
+
+
+def reject_legacy_columns(frame: pd.DataFrame, what: str) -> None:
+    """Refuse a frame written before the B16 rename.
+
+    Silence is the failure mode being closed. `build_panel` fills any declared
+    panel column the inputs did not supply with NaN, so a stale market frame
+    carrying `log_turnover` would produce a fully missing `log_volume` and a
+    regression fitted on nothing -- reported as a small sample, not as an error.
+    """
+    found = [c for c in LEGACY_COLUMN_RENAMES if c in frame.columns]
+    if found:
+        pairs = ", ".join(f"{c} -> {LEGACY_COLUMN_RENAMES[c]}" for c in sorted(found))
+        raise ValueError(
+            f"{what} uses pre-B16 column name(s): {pairs}. Names must match "
+            "formulas (P22, inference protocol Section 10): log share volume is "
+            "not turnover and the Parkinson estimator is a range-based variance "
+            "proxy. Rebuild the artifact rather than renaming it in place."
+        )
+
+
+def assert_panel_schema(panel: pd.DataFrame) -> None:
+    """Check a panel read from disk against the current contract.
+
+    `run_all.py --skip-panel` reuses a saved panel. Without this, a panel saved
+    before the rename would flow into the regressions and fail deep inside them,
+    or -- worse -- fit on whichever columns still happened to match.
+    """
+    reject_legacy_columns(panel, "panel")
+    missing = [c for c in PANEL_COLUMNS if c not in panel.columns]
+    if missing:
+        raise ValueError(
+            f"panel is missing contract column(s) {missing}. It was built by an "
+            "older align.build_panel; rebuild it (drop --skip-panel)."
+        )
 
 
 def session_closes(calendar: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -453,7 +509,7 @@ def assert_sessions_match_calendar(panel: pd.DataFrame, calendar: pd.DatetimeInd
 
 
 def build_panel(
-    daily_scores: pd.DataFrame, market: pd.DataFrame, turnover_window: int = 63
+    daily_scores: pd.DataFrame, market: pd.DataFrame, volume_window: int = 63
 ) -> pd.DataFrame:
     """Join market data onto the calendar-indexed daily scores; build lags and leads.
 
@@ -474,11 +530,23 @@ def build_panel(
     *after* zero-news sessions had been excluded, so a Wednesday whose Tuesday
     was dropped would silently take Monday's return as its lag (B05/P12).
 
-    Turnover is detrended against a **trailing-only** rolling mean; a centred
-    window would leak future volume into day t.
+    Log volume is detrended against a **trailing-only** rolling mean; a centred
+    window would leak future volume into day t. It is log share volume, not
+    turnover: no share-count denominator is available, so the name says volume
+    (P22).
 
     `panel.attrs["build_stats"]` carries the missing-market-session counts.
     """
+    reject_legacy_columns(market, "the market frame")
+    reject_legacy_columns(daily_scores, "the daily-scores frame")
+    missing_market_cols = [c for c in REQUIRED_MARKET_COLUMNS if c not in market.columns]
+    if missing_market_cols:
+        raise ValueError(
+            f"the market frame is missing required column(s) {missing_market_cols}. "
+            "Build it with data.load_market; these are not NaN-filled because an "
+            "all-missing control silently empties the regression sample."
+        )
+
     market = market.copy()
     market["date"] = pd.to_datetime(market["date"]).dt.normalize()
     daily_scores = daily_scores.copy()
@@ -508,19 +576,19 @@ def build_panel(
         ],
     }
 
-    roll = panel["log_turnover"].rolling(turnover_window, min_periods=turnover_window).mean()
-    panel["log_turnover_detrended"] = panel["log_turnover"] - roll
+    roll = panel["log_volume"].rolling(volume_window, min_periods=volume_window).mean()
+    panel["log_volume_detrended"] = panel["log_volume"] - roll
 
     # Lags and leads: the only place either is constructed. Every shift below is
     # a shift over the complete calendar, so it is a shift in trading sessions.
     panel["ret_lag1"] = panel["ret"].shift(1)
-    panel["parkinson_lag1"] = panel["parkinson"].shift(1)
-    panel["log_turnover_lag1"] = panel["log_turnover"].shift(1)
+    panel["rv_parkinson_lag1"] = panel["rv_parkinson"].shift(1)
+    panel["log_volume_lag1"] = panel["log_volume"].shift(1)
 
     for h in config.HORIZONS:
         panel[f"ret_lead{h}"] = panel["ret"].shift(-h)
-    panel["parkinson_lead1"] = panel["parkinson"].shift(-1)
-    panel["log_turnover_detrended_lead1"] = panel["log_turnover_detrended"].shift(-1)
+    panel["rv_parkinson_lead1"] = panel["rv_parkinson"].shift(-1)
+    panel["log_volume_detrended_lead1"] = panel["log_volume_detrended"].shift(-1)
 
     for c in PANEL_COLUMNS:
         if c not in panel.columns:

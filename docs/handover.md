@@ -10,18 +10,20 @@ Related: [implementation plan](implementation-plan.md) (B01–B28) · [decision 
 
 ## 1. Where the project stands, in one paragraph
 
-The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: **869,183** deduplicated Benzinga headlines over 2,516 trading sessions, with D4 frozen on coverage evidence. A full project audit on 2026-09-09 found fifteen issues (A01–A15); **thirteen of the thirty repair increments are complete**, covering scoring-cache identity and durable checkpoints, verified acquisition, the census mapping, the market-return calendar, the score-to-panel gate, the protocol amendments, the deduplication lineage and its verified rebuild, and Act 1's blind sample. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
+**Dependency update, 2026-09-10:** the LM dictionary is now acquired and verified (1993–2025, March 2026 release; [provenance](lm-dictionary-provenance.md)). The user volunteered to label the 60-item pilot; [worksheet](../data/annotation/pilot_worksheet.csv) and [instructions](../data/annotation/PILOT_README.md) are ready. Labels are still pending. R06b implementation can proceed on synthetic fixtures without labels; R13a empirical evaluation cannot. R11 no longer waits for the dictionary, but still follows its implementation/readiness prerequisites. The frozen sample was not redrawn.
 
-**246 tests pass, 0 skip.** The seven long-standing skips were FinBERT and VADER; Smart App Control has since been disabled, so `torch` loads and every test executes.
+The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: **869,183** deduplicated Benzinga headlines over 2,516 trading sessions, with D4 frozen on coverage evidence. A full project audit on 2026-09-09 found fifteen issues (A01–A15); **fourteen of the thirty repair increments are complete**, covering scoring-cache identity and durable checkpoints, verified acquisition, the census mapping, the market-return calendar, the score-to-panel gate, the protocol amendments, the deduplication lineage and its verified rebuild, and Act 1's blind sample. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
 
-The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-09.md) — **13 of 30 increments complete** — which sits inside the B01–B28 roadmap below and is the authoritative execution order.
+**258 tests pass, 0 skip.** The seven long-standing skips were FinBERT and VADER; Smart App Control has since been disabled, so `torch` loads and every test executes.
+
+The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-09.md) — **14 of 30 increments complete** — which sits inside the B01–B28 roadmap below and is the authoritative execution order.
 
 ### Start here
 
 1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
 2. **§5a** names the next increment and why it is next.
 3. **§6** is what you cannot do without a human.
-4. Run `pytest` before touching anything: 246 passing, 0 skipped, is the baseline.
+4. Run `pytest` before touching anything: 258 passing, 0 skipped, is the baseline.
 
 Three facts that will save you an hour:
 
@@ -243,7 +245,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 
 | ID | Task | Status | Notes |
 |---|---|---|---|
-| B16 | Volume naming; context-plot contract | 🟡 | `close_adj` now reaches the panel (part of P29). Renames `log_turnover`→`log_volume`, `parkinson`→`rv_parkinson` outstanding — **R07a** |
+| B16 | Volume naming; context-plot contract | ✅ | **R07a, 2026-09-10.** `log_turnover`→`log_volume`, `parkinson`→`rv_parkinson` across code, tests and docs; field contract in [`timing-contract.md`](timing-contract.md) §10; legacy-name and required-column guards; the context figure now requires `close_adj` instead of plotting a scalar NaN (P29 closed) |
 | B17 | Primary next-day regression on a fixture | 🟡 | `inference.predictive` exists and runs; not yet verified against the B02 eligibility rules |
 | B18 | Secondary family + paired scorer contrast | 🟡 | BH implemented; **BY sensitivity and the stacked `delta` contrast are not** |
 | B19 | Timing diagnostic corrected | ⬜ | Still block-resamples with replacement; B02 §9 specifies the circular shift |
@@ -269,7 +271,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 
 ### The audit repair sequence (the live plan)
 
-Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2026-09-09.md), repaired in the thirty increments of the [repair plan](audit-implementation-plan-2026-09-09.md). **Eleven complete, nineteen remaining.**
+Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2026-09-09.md), repaired in the thirty increments of the [repair plan](audit-implementation-plan-2026-09-09.md). **Fourteen complete, sixteen remaining.**
 
 | Increment | Finding | State |
 |---|---|---|
@@ -280,9 +282,9 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R04a, R04b | A04, A03 | ✅ Returns on the calendar; complete-score gate before aggregation |
 | R05 | A10, A09 | ✅ Six protocol amendments; M7 (HAC spacing) deferred to R07c |
 | R03d | — | ✅ Verified rebuild; corpus replaced, `verified_against_pin: true` |
-| R06a | A11 | ✅ Blind sample drawn: 800 items in `data/annotation/`, awaiting an annotator |
-| R06b | A11 | ▶ **Next once labels exist.** Label ingestion and paired metrics |
-| R07a–R07d | A07, A09 | ⬜ Panel fields, primary fixture, HAC spacing, precision contract |
+| R06a | A11 | ✅ Blind sample drawn; user will label the 60-item pilot in `pilot_worksheet.csv` |
+| R06b | A11 | **Ready for implementation on synthetic fixtures.** Empirical use awaits human labels |
+| R07b–R07d | A07, A09 | ⬜ Primary fixture, HAC spacing, precision contract |
 | R08a–R08c | A08 | ⬜ Return families, paired scorer contrast, timing diagnostic |
 | R09, R10 | A14, A13, A15 | ⬜ Documentation, preflight and pilot readiness |
 | R11, R12 | — | ⬜ Pilot and bounded scoring; the mathematical demonstration |
@@ -300,7 +302,7 @@ Six findings are closed (A01–A06), A15 is partly closed, and eight remain open
 | README states findings as filled-in placeholders | `README.md` | B27 / R09 |
 | Report skeleton still uses original-plan language in places | `report/report.md` | B27 / R09 |
 | Placebo resamples blocks with replacement | `inference.permutation_pvalue` | B19 / R08c |
-| Primary model uses raw `log_turnover`, not the protocol's 63-session detrend | `src/inference.py:95` | R07a/R07b |
+| Primary model uses raw `log_volume`, not the protocol's 63-session detrend | `src/inference.py:113` | R07b |
 | `clears_costs` frames a coefficient as strategy profitability, which the inference protocol §11 forbids | `src/inference.py:225` | R07d / R08 |
 | Source filter matches by substring, so `notbenzinga.com` would pass | `src/data.py:94` | audit follow-up |
 | `config.AGG` is never read by `aggregate_daily` — an inert flag | `config.py:138` | audit follow-up |
@@ -358,14 +360,14 @@ Two corrections came out of it, both recorded: the earlier "0.05% malformed time
 
 ## 5a. The next increment
 
-**R07a**, then R07b → R07c → R07d → R08a–c.
+**R07b**, then R07c → R07d → R08a–c.
 
 The corpus track is closed and Act 1's sample is drawn, so what remains on the critical path with **no external dependency** is the inference track: seven fixture-based increments that gate every Act 2 result.
 
 | Increment | What it does | Why it is not optional |
 |---|---|---|
-| **R07a** | Rename `log_turnover` → `log_volume`, `parkinson` → `rv_parkinson`, and fix consumers | Names must match formulas (P22); obsolete consumers should fail tests |
-| **R07b** | Build the primary regression to the frozen specification | `inference.predictive` uses **raw** `log_turnover`; the protocol specifies trailing-63-session-**detrended** log volume. That is a different model, not a renamed column (A07). Tone is also not standardized at fit time, and the bps conversion uses the wrong sample's SD |
+| ~~R07a~~ | ✅ **Done 2026-09-10.** Renamed across code, tests and docs; field contract written; stale-artifact guards added | Names must match formulas (P22); obsolete consumers should fail tests |
+| **R07b** | Build the primary regression to the frozen specification | `inference.predictive` uses **raw** `log_volume`; the protocol specifies trailing-63-session-**detrended** log volume. That is a different model, not a renamed column (A07). Tone is also not standardized at fit time, and the bps conversion uses the wrong sample's SD |
 | **R07c** | Session-indexed vs retained-position HAC | Owns the **deferred M7 decision**. Measure both on synthetic gapped data and the real sample, then choose — before any tone coefficient is estimated |
 | **R07d** | Precision and the conclusion rule | Implements M1's two advance half-widths and M2's 2×2 rule |
 | **R08a–c** | Return families, paired scorer contrast, timing diagnostic | Replaces per-scorer BH with one primary + 14 secondary; replaces block resampling with the circular shift (A08) |
@@ -378,8 +380,8 @@ The corpus track is closed and Act 1's sample is drawn, so what remains on the c
 
 | Hand this over | Unblocks |
 |---|---|
-| The 800 items in `data/annotation/to_label_primary.csv`, starting with the 60 in `pilot_items.csv` | R06b, R13a, all of Act 1 |
-| `LoughranMcDonald_MasterDictionary.csv` in `data/raw/` | LM scoring, the calibration thresholds, R11 |
+| User labels the 60 items in `data/annotation/pilot_worksheet.csv`; check the pilot before the remaining annotation | Pilot assessment first; full labels later unblock R13a. R06b code does not require labels |
+| LM dictionary | **Resolved 2026-09-10:** acquired, validated and release/hash recorded |
 
 Neither blocks R07 or R08.
 
@@ -387,8 +389,8 @@ Neither blocks R07 or R08.
 
 | Blocker | Blocks | Action |
 |---|---|---|
-| **Loughran–McDonald dictionary** not obtained | Any LM scoring; Act 1 | Download by hand from the Notre Dame SRAF site (no stable link) into `data/raw/LoughranMcDonald_MasterDictionary.csv`, then record the release in `config.LM_DICT_VERSION` |
-| **Human annotation** not started | R06b, B15, B24, all of Act 1 | **The sample is drawn and waiting.** `data/annotation/to_label_primary.csv` holds 800 blind items; start with the 60 in `pilot_items.csv`, then check rubric adequacy, class balance and throughput before committing to the rest (protocol §8). A second annotator on `to_label_second.csv` (160 items) gives kappa; if none is available, say so plainly in the report rather than leaving it unmentioned |
+| ~~Loughran–McDonald dictionary missing~~ | — | **Resolved 2026-09-10.** Official 1993–2025 CSV at `LM_DICT_PATH`; release and SHA-256 in config; 347 positive / 2,345 negative terms verified |
+| **Human labels pending** | R13a/B24 empirical validation and empirical threshold fitting; **not R06b/B15 code** | User agreed to label the 60-item pilot. Fill `pilot_worksheet.csv`, follow `PILOT_README.md`, then assess the pilot before proceeding. Full 800-item labeling and a second annotator are not yet committed/completed |
 | ~~Window not frozen~~ | — | **Resolved**: frozen 2026-09-09 on the census |
 | ~~Smart App Control blocks `torch`~~ | — | **Resolved 2026-09-09**: the user disabled Smart App Control. `torch 2.14.0+cpu` and `transformers 5.16.1` load, FinBERT runs, and the seven long-standing skips now execute |
 | `datasets==4.0.0` loader | B10, PhraseBank fallback only | Not on the critical path unless annotation fails |

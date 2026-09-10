@@ -187,8 +187,8 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     rows = []
     for sc in ("finbert", "lm"):
         for outcome, fit in (
-            ("parkinson_lead1", inference.volatility_spec(sample, sc)),
-            ("log_turnover_detrended_lead1", inference.volume_spec(sample, sc)),
+            ("rv_parkinson_lead1", inference.volatility_spec(sample, sc)),
+            ("log_volume_detrended_lead1", inference.volume_spec(sample, sc)),
         ):
             for term in fit.params.index:
                 rows.append(
@@ -235,6 +235,9 @@ def main() -> None:
 
     if args.skip_panel:
         panel = pd.read_parquet(_require(config.PANEL_PARQUET, "drop --skip-panel"))
+        # A reused panel is an artifact of whatever code wrote it, which may
+        # predate the current field contract (B16/P22 renames).
+        align.assert_panel_schema(panel)
     else:
         panel = build_panel()
         print(f"wrote {config.PANEL_PARQUET}  ({len(panel):,} rows)")

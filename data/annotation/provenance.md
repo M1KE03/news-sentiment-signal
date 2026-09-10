@@ -2,6 +2,12 @@
 
 Sample drawn 2026-09-09 by `src/annotate.build`. Fields marked TO BE COMPLETED are filled in at labelling time by the annotator, not reconstructed afterwards.
 
+## Pilot handoff — 2026-09-10
+
+The user agreed: “I will label the pilot.” `pilot_worksheet.csv` contains the existing 60 calibration pilot items in their preserved blind presentation order, with empty response fields. Preparation did not redraw the sample, change the split, score annotation text or supply labels. Session dates, actual annotator-role details, blindness confirmation and deviations below remain for completion when labeling occurs. Agreement to the pilot does not imply that all 800 items or a second annotator have been arranged.
+
+Instructions and source-file hashes: [PILOT_README.md](PILOT_README.md).
+
 | Field | Content |
 |---|---|
 | Rubric version | `v1`, `docs/validation-protocol.md` sha256 `b124df2d20b8991b...` |

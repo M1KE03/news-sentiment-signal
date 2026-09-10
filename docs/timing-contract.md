@@ -136,4 +136,75 @@ Suggested split, since B08 and B09 each carry two independent behaviours: B06 (c
 | Whether the weekday-staleness sensitivity becomes a reported exhibit or a footnote | B25 |
 | `yfinance` session coverage against the NYSE calendar over 2010–2019 | measured at B06 |
 | Whether the secondary mapping rule is reported at all | B25, decided before results are seen |
-| Field renames (`log_turnover` → `log_volume`, etc.) | B16, deliberately not bundled here |
+| ~~Field renames (`log_turnover` → `log_volume`, etc.)~~ | **Closed at R07a, 2026-09-10** — §10 below |
+
+## 10. Panel field contract (B16 / R07a, 2026-09-10)
+
+`align.PANEL_COLUMNS` is the whole analysis table. Every Act-2 number is read
+from it, so a name that does not match its formula is a claim the data does not
+support. This section is the mapping the audit's B16 row asked for: what each
+column is, how it is computed, and where it is built.
+
+**Two names were wrong** and are corrected here (P22, [inference
+protocol](inference-protocol.md) §10):
+
+| Was | Is | Why the old name overclaimed |
+|---|---|---|
+| `log_turnover` | `log_volume` | `log(share volume)`. Turnover needs a share-count or float denominator; nothing in this pipeline supplies one, so the series was never a turnover ratio |
+| `log_turnover_detrended` | `log_volume_detrended` | Same series, trailing mean removed |
+| `parkinson` | `rv_parkinson` | A high-low **range** estimator of variance. It cannot see the intraday path or the overnight gap, so it is not daily volatility |
+
+The derived columns follow their stems: `log_volume_lag1`,
+`log_volume_detrended_lead1`, `rv_parkinson_lag1`, `rv_parkinson_lead1`.
+`build_panel`'s window parameter is `volume_window` (was `turnover_window`).
+
+### The columns
+
+| Column | Formula | Built in | Notes |
+|---|---|---|---|
+| `date` | exchange session | `aggregate_daily` | the complete calendar; a row shift is a session shift |
+| `n_headlines` | count mapped to session `t` | `aggregate_daily` | 0 on a zero-news session; the D9 eligibility field |
+| `s_<scorer>` | mean headline tone on `t` | `aggregate_daily` | |
+| `d_<scorer>` | within-day SD of headline tone | `aggregate_daily` | defined only when `n_t >= 5`; **dispersion**, not disagreement (P21) |
+| `ret` | `log(C_t / C_(t-1))` over adjacent **sessions** | `load_market` | computed on the calendar, not on whatever rows the price source returned (R04a) |
+| `ret_lag1` | `ret.shift(1)` | `build_panel` | full-calendar shift, before any exclusion |
+| `ret_lead<h>` | `ret.shift(-h)` | `build_panel` | the return **of** session `t+h`, not a cumulative `h`-day return |
+| `rv_parkinson` | `(log(H_t / L_t))^2 / (4 log 2)` | `load_market` | intraday range-based variance proxy |
+| `rv_parkinson_lag1` / `_lead1` | `shift(1)` / `shift(-1)` | `build_panel` | |
+| `log_volume` | `log(V_t)`, `V_t = 0` treated as missing | `load_market` | log share volume |
+| `log_volume_lag1` | `shift(1)` | `build_panel` | |
+| `log_volume_detrended` | `log_volume` minus its **trailing** 63-session mean ending at `t` | `build_panel` | trailing only; a centred window leaks future volume into `t`. Missing for the first 62 sessions by construction |
+| `log_volume_detrended_lead1` | `shift(-1)` | `build_panel` | |
+| `close_adj` | split/dividend-adjusted close | `load_market` | context figure only; never a regressor (P29) |
+| `vix_close` | VIX close on `t` | `load_market` | recorded, not in the frozen control set |
+
+`ret`, `rv_parkinson`, `log_volume` and `close_adj` are
+`align.REQUIRED_MARKET_COLUMNS`: `build_panel` raises if the market frame lacks
+any of them rather than NaN-filling, because an all-missing control does not
+announce itself — it empties the regression sample and is then reported as a
+sample size.
+
+### Why a rename needs guards
+
+`build_panel` fills any declared panel column its inputs did not supply with
+`NaN`. That is deliberate for genuinely optional fields, and it is exactly what
+makes a rename dangerous: a market frame or saved panel written before this
+section would carry `log_turnover`, `log_volume` would be created empty, and
+every downstream regression would silently fit on a shorter sample instead of
+failing. Two guards close that path:
+
+- `align.reject_legacy_columns` — called on both `build_panel` inputs; raises
+  naming each stale column and its replacement.
+- `align.assert_panel_schema` — called by `run_all.py` on the `--skip-panel`
+  path, where a panel is read from disk and its provenance is whatever wrote it.
+
+`tests/test_panel_fields.py` (12 tests) checks each formula against fixture
+bars, checks that the detrend window is trailing-only, and checks that both
+guards fire.
+
+### What R07a did **not** change
+
+The rename is a rename. `inference.predictive` still uses **raw** `log_volume`
+where the protocol specifies the detrended series, and tone is still not
+standardized at fit time. That is a different model, not a different column name
+(A07), and it is R07b's work.

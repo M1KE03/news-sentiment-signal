@@ -65,7 +65,7 @@ pip install -r requirements.txt
 python data/raw/download.py --assemble   # stream the pinned 5.7 GB FNSPID file, verify its digest
 python data/raw/download.py --dedup     # raw -> analysis corpus, with lineage
 python data/raw/download.py --census    # coverage, duplication, concentration
-python data/raw/download.py --market    # SPY/^VIX; the LM dictionary is obtained by hand
+python data/raw/download.py --market    # SPY/^VIX; LM acquisition is documented below
 python rescore.py                   # once: the FinBERT pass, cached by headline hash
 python run_all.py                   # minutes, no GPU: panel -> every table and figure
 pytest                              # the firewall
@@ -136,7 +136,7 @@ future-work.md       where scope creep goes to die quietly
 
 - Financial PhraseBank — Malo et al. (2014), via HuggingFace `financial_phrasebank`.
 - FinBERT — Araci (2019), model `ProsusAI/finbert`. Used as published; nothing is fine-tuned here.
-- Loughran–McDonald master dictionary — Loughran & McDonald (2011), from the Notre Dame SRAF site.
+- Loughran–McDonald master dictionary — Loughran & McDonald (2011), from Notre Dame SRAF; [acquired release, hash and reproduction notes](docs/lm-dictionary-provenance.md).
 - Headlines — FNSPID or the Kaggle Benzinga headline set (D1, locked at Stage 0).
 - Prices — SPY and ^VIX via `yfinance`.
 
