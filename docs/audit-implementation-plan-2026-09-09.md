@@ -4,7 +4,58 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-10
 
-### Latest: R10 — preflight and pilot readiness
+### Latest: R11 — length-sorted batching, and three provenance findings
+
+**Authorized by the user** ("i accept 1-2"): implement the batching optimisation, then run the full pass. The pass is running against 869,183 headlines. 426 tests pass, 0 skip.
+
+**The optimisation is 2.2x, and my claim that it "changes no output" was wrong.** Before implementing it I measured whether batch composition moves the numbers, and it does. Scoring the same 512 real headlines three ways — natural order, length-sorted, and a random permutation, each restored to input order — gives max differences of **4.2e-6**, **1.5e-6**, and 4.2e-6 against `batch_size=1`. Padding is masked out of the attention, but float32 accumulation over different tensor shapes is not bit-identical. Only 159 of 512 scores were exactly equal between natural and sorted order.
+
+4.2e-6 on a score in `[-1, 1]` is immaterial to everything this study reports: it survives a ~345-headline daily mean, standardization, and conversion to basis points printed at 0.1 bps. But "immaterial" and "no change" are different claims, and the second one was the one I made.
+
+**Finding 1 — the fingerprint was already incomplete.** `FinbertScorer.fingerprint` documents itself as "every setting that changes the number". `batch_size` was not in it, and `batch_size` demonstrably changes the number: `batch_size=1` and `batch_size=32` disagree by up to 4.2e-6 on the same text. That gap predates this increment; measuring the batching question is what exposed it. `batch_size` and the new `batch_order` are both recorded now, so the docstring's claim is true.
+
+**Finding 2 — resume was never bit-identical for FinBERT.** The checkpoint contract says an interrupted pass "produces the same result as an uninterrupted one". For the cache mechanics — which rows carry which committed values — that holds. For FinBERT's float32 output it does not and never did: resuming scores only the surviving unscored rows, which form different batches. `tests/test_checkpoints.py` could not catch this because it resumes with a Stub scorer returning a constant. The guarantee is over rows and values, not over the last few ulps, and the fingerprint docstring now says so.
+
+**Finding 3 — the two fingerprint paths diverged, and the guard caught it mid-launch.** `_configured_fingerprints()` derives FinBERT's expected identity from config **without importing torch**, and `score_all` compares it against the loaded scorer before writing anything. I added the two new fields to the scorer and not to the config path, so the first full-pass launch aborted with `IncompatibleCache: loaded finbert identity differs from preflight` — after loading the corpus and the model, before writing a single row. That is the R01a/R01b guard working exactly as designed. Both paths now carry the fields, and a test asserts they agree field for field, which is what makes the next such mistake cheap instead of a wasted launch.
+
+**Measured, on real headlines.**
+
+| | natural order | length-sorted |
+|---|---:|---:|
+| Throughput | 40–54 headlines/s | **113 headlines/s** |
+| Token positions computed | 2.33x the real tokens | **1.01x** |
+| Projected full pass | 4.49 h | **2.14 h** |
+
+Padding is what a mixed-length batch pays for: every batch is padded to its longest member, and on a corpus averaging 21 tokens with a p99 of 55, that more than doubles the arithmetic. Grouping by length removes 56.5% of it. Results are returned in input order; the sort is internal, and a test asserts a long headline cannot swap places with short ones on its way through the batcher.
+
+`FINBERT_BATCH_ORDER = "length_sorted"` is in `config.py` and in the fingerprint, so changing it invalidates the cached column rather than silently mixing two orderings.
+
+### Previous: R11 (pilot half) — measured, not estimated
+
+**R11's pilot is complete; the full pass awaits separate authorization.** 418 tests pass, 0 skip. The scoring cache now holds one bounded, complete-session chunk; no panel, no model fit, no result.
+
+Every number below was measured on this machine on 2026-09-10, against the pinned `ProsusAI/finbert` revision `4556d130…`, on CPU (8 torch threads of 16 logical CPUs). None is an estimate carried over from the original plan.
+
+| Quantity | Measured | Note |
+|---|---:|---|
+| FinBERT throughput | **54 headlines/s** | 2,000 headlines in 37.2 s, batch 32, dynamic padding |
+| Projected full pass | **4.49 h** for 869,183 headlines | over the plan's 2 h budget |
+| Truncation at `max_length = 64` | **3,921 headlines, 0.45 %** | mean 21.2 tokens, median 19, p95 42, p99 55, max 139; whole corpus tokenized in 17 s |
+| Storage | **128 B/row → ≈ 111 MB** for the full cache | three float32 score columns plus provenance |
+| Bounded chunk | 10 calendar days, **546 headlines**, 3 scorers, 17.4 s | `rescore.py --sessions 10 --checkpoint-every 200` |
+| Per-session coverage | **complete**: 546 of 546, 0 missing, 0 extra | every headline of every touched day, exactly once |
+| Fingerprints | **all three verified** against the configured scorers | LM `1993–2025 (March 2026)`, wordlist SHA-1 `35fe7553…`; VADER lexicon 7,506; FinBERT revision + `max_length` |
+| Resume | re-running the identical command: **0.2 s, zero rescoring** | durable stop/resume on real data, not only on injected failures |
+
+**Truncation is now a number, not an assurance.** Audit A13 named "truncation is safe: these are headlines" as premature. It is 0.45 %, and the truncated tail is a specific kind of text: earnings-guidance and option-alert headlines that string several figures together (`…Q4 Adj. EPS $0.48–$0.54 vs $0.49 Est., Sales $1.719B–$1.769B vs…`). For those, the sentiment-bearing words are almost always in the first 64 tokens and the cut removes trailing numbers. Raising the cap to 96 would lower truncation to 0.07 % at roughly 1.5× the compute. **The cap is a fingerprinted setting**, so changing it is a different measurement and a new cache, not a tweak; it is left at 64 and reported.
+
+**The 2 h budget is exceeded, and that is a decision, not a repair.** The plan's rule when the projection is unacceptable is to shorten the *window* (D4) and record it — never to subsample within days. D4 is frozen on coverage evidence and unfreezing it needs a dated decision-log entry from the user. Two facts bear on that decision: 4.5 h is a **one-time** cost (the cache resumes across interruptions and never needs re-running unless a fingerprint changes), and the 2 h figure was written into the original plan before the corpus existed. One pure-performance option changes no output: sorting each chunk by token length before batching so batches are homogeneous, which on a mean of 21 tokens against batch maxima near 40 would plausibly recover 1.5–2×. It is not implemented, because it touches the scoring path and belongs to a deliberate choice rather than a side effect of measuring.
+
+**One provenance gap surfaced.** VADER's fingerprint records `version: unknown` — the package exposes no version attribute the scorer can read. The lexicon size (7,506) is recorded and does identify the word list, so the measurement is still pinned; but the field should read the installed distribution version from `importlib.metadata`, which `src/preflight.py` already does for the dependency report. Carried, not fixed here.
+
+**What the bounded pass proves that the tests could not.** `tests/test_checkpoints.py` injects failures at commit boundaries; this pass exercised the same contract with a real transformer, a real 869k-row corpus and a real filesystem, and the re-run found nothing to do. The lock file `scores.parquet.lock` remains after a clean exit by design (R01d) and is reacquired on the next run.
+
+### Previous: R10 — preflight and pilot readiness
 
 **R10 complete. 23 of 29 increments done. A13 closed; A15's readiness half closed.** 418 tests pass, 0 skip.
 
@@ -531,7 +582,7 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | ✅ R08c — timing diagnostic | **Done 2026-09-10.** `timing_diagnostic`: full circular shift over the retained rows in session order, midrank percentile, tie count, gap disclosure; `permutation_pvalue`, `_circular_block_permute` and their config settings **deleted**; Figure 2's "placebo p" annotation replaced | 17 tests (`tests/test_timing_diagnostic.py`). Every shift is a bijection; Frisch-Waugh coefficients checked against direct refits; a coefficient built to dominate ranks above the 97th percentile of its own shift distribution; no output key is a p-value and the record says so. Mutation-checked: rolling the residualized tone instead of residualizing the rolled tone fails the refit check — a real bug this caught during implementation | B19; R05/R07 |
 | ✅ R09 — honest current documentation | **Done 2026-09-10.** README, `report/report.md`, notebooks 02–05, the decision-log status paragraph, this plan's counts and tick marks, and the handover's status, module map and carried-defects table | Verified against the code, not against the prose's own history. Removed: the withdrawn three-conclusion rule (M2), McNemar as the primary accuracy test (M4), "a null that assumes nothing" and the deleted block permutation with its block/draws/seed (R08c, §11), the correlation>0.9 decision rule (R08b), the 5 bps SESOI as a "transaction-cost benchmark" (P19), per-scorer BH (M3/R08a), and notebook 04's instruction to report `d_t` prominently as "the project's most plausible positive finding" (P21/P23). Corrected: the decision log's stale corpus count, drawn-sample and blocker claims; "thirty increments" for a table of 29; nine missing tick marks. **A14 closed.** Two *code* defects re-verified open and left for the audit follow-up: substring domain matching and the inert `config.AGG` | B27 preliminary pass; A14; can be done early |
 | ✅ R10 — preflight and pilot readiness | **Done 2026-09-10.** New `src/preflight.py` and root `preflight.py` CLI (`--stage`, `--load-models`, `--cache`, `--output` JSON, `--freeze`, `--strict`), merged with the root script already committed by concurrent work on the same increment); `requirements.txt` re-pinned to the tested environment; `rescore.py` gains `--sessions`, `--checkpoint-every`, `--dry-run`; `run_all.py` and `rescore.py` gate on artifacts before doing anything expensive | 30 tests (`tests/test_preflight.py`), 418 passing 0 skipped. A13 quantified then closed: **1 ok, 11 mismatch, 3 absent** before, 12 ok after, with a standing test that fails if the pins drift again — mutation-checked by restoring the original `numpy` pin. Missing artifacts now name themselves, their path, and the command that produces them, and separate "run this" from "a person must do this". Bounding is **by whole session**, never by headline count | B22 readiness; A13/A15; no security change |
-| R11 — pilot and bounded scoring | Measure actual model throughput, token truncation and checkpoint recovery; then separately authorized complete-session chunks | Measured rate/storage/truncation; verified fingerprints; complete per-session coverage; durable stop/resume | B22/B23; R01–R04/R10; usable model environment and dictionary |
+| 🟡 R11 — pilot and bounded scoring | **Pilot done 2026-09-10; full pass awaits authorization.** Measured: 54 headlines/s on CPU, **4.49 h projected** (over the 2 h budget — a D4 decision for the user); truncation at 64 tokens **0.45 %** (3,921), whole corpus tokenized; 128 B/row → ≈ 111 MB. Bounded chunk `--sessions 10`: 546 headlines, complete per session, all three fingerprints verified, resume in 0.2 s with zero rescoring | Rate/storage/truncation measured; fingerprints verified; per-session coverage complete; stop/resume durable on real data. Carried: VADER fingerprint records `version: unknown` | B22/B23; R01–R04/R10; usable model environment and dictionary |
 | R12 — mathematics | Write attenuation/scaling derivation, then one bounded reproducible simulation | Known generating process; conditional claims and simulated quantities explicit; no inference from simulation to observed market effect | B21; can proceed before real scores |
 | R13a — empirical validation | Run frozen independent evaluation and paired uncertainty | Human-label provenance, frozen thresholds, class balance, agreement limitations and interval outputs verified | B24; R06/R11 and human labels |
 | R13b — empirical primary analysis | Build verified panel; record precision estimate before coefficient inspection; run primary plus separately selected secondary work | Eligibility, timing, scale, pointwise uncertainty and manifest complete; no same-day claim | B25; completed required scoring and R07/R08 |

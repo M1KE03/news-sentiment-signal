@@ -240,6 +240,14 @@ The repair is a command and a guard rather than a promise to stay in step: `pyth
 **A file was overwritten and then merged back.** A root `preflight.py` already existed at HEAD, written by concurrent work on this same increment, and it was overwritten before being read — my error. It was recovered from git and **merged rather than discarded**, because it carried the substantive half: parquet schema validation, the LM dictionary SHA-256 check against `config.LM_DICT_SHA256`, complete-score-cache verification with scorer-identity comparison, optional model loading, and a JSON report R14's run manifest will want. What this pass added on top is the artifact registry with `produced_by`/`external`, the `require_artifacts`/`require_packages` gates wired into both runners, the dependency status taxonomy, `--freeze`, and 30 tests where there had been none. The two stage vocabularies were reconciled onto the one already committed — `unit`, `pilot`, `scoring`, `analysis`, `validation` — so the project has one set of stage names, and a test asserts it.
 
 
+### R11, pilot half — the expensive step, measured before it is spent
+
+The scoring pass is the one step in the project that costs hours, so it was measured before being run. **FinBERT scores 54 headlines/s on this CPU**, which projects to **4.49 h** for the 869,183-headline corpus — over the plan's 2 h budget. **Truncation at 64 tokens hits 0.45 %** of headlines (3,921), measured by tokenizing the whole corpus rather than asserting that headlines are short; the tail is guidance and option-alert lines that chain several figures. Storage is 128 B/row, about 111 MB.
+
+A **10-session bounded chunk was scored** (546 headlines, 17.4 s) and then checked from the artifact: every headline of every touched day is present exactly once, all three scorer fingerprints match the configured scorers, and re-running the identical command took 0.2 s and rescored nothing. `data/interim/scores.parquet` therefore now holds real study data — 546 rows — and the score-to-panel gate will refuse it until every in-window session is scored.
+
+**The full pass has not been run.** The plan's rule for an over-budget projection is to shorten the window (D4), which is frozen and needs a dated decision-log entry from the user. The alternatives on the table: accept 4.5 h as a one-time cost; or first add length-sorted batching, which changes no output and plausibly recovers 1.5–2×. Neither is taken here.
+
 ## 4. Checklist against the implementation plan
 
 Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigger)
@@ -325,7 +333,8 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R08c | A08 | ✅ Circular-shift timing diagnostic as a percentile; `permutation_pvalue` deleted. **A08 closed** |
 | R09 | A14 | ✅ Documentation reconciled against the code; withdrawn procedures and a predetermined finding removed |
 | R10 | A13, A15 | ✅ Preflight inventory and artifact gates; `requirements.txt` re-pinned to the tested environment; bounded whole-session scoring |
-| R11, R12 | — | ⬜ Pilot and bounded scoring; the mathematical demonstration |
+| R11 | — | 🟡 **Pilot done.** 54 headlines/s, 4.49 h projected, 0.45 % truncation, 111 MB; 10-session chunk scored, verified, resumed. **Full pass awaits the user's D4/budget decision** |
+| R12 | — | ⬜ The mathematical demonstration |
 | — | — | **8 of 15 findings' repairs remain**: R11–R15. A13 and A14 closed at R10/R09 |
 | R13a, R13b | — | ⬜ Empirical validation and primary analysis |
 | R14, R15 | — | ⬜ Reproduction and presentation |
@@ -348,6 +357,7 @@ Verified line by line at R09 (2026-09-10). Four rows had already been fixed in e
 | RQ4 exploratory specs still use old-plan conventions; every primary, return-family, paired and timing path now uses `primary`/`eligibility` | `volatility_spec`, `volume_spec` (and the `predictive` helper they lean on) | optional RQ4 increment |
 | Source filter matches by **substring**, so a host like `notbenzinga.com` would pass | `src/data.py:112` — `any(d in h for d in domains)`; re-verified open at R09 | audit follow-up |
 | `config.AGG` is never read — `aggregate_daily` hardcodes `.mean()`, so changing the flag changes nothing | `config.py:161`, `src/align.py:467`; re-verified open at R09 | audit follow-up |
+| VADER's cache fingerprint records `version: unknown` | `src/scoring.py` — the package exposes no version attribute; the lexicon size (7,506) pins the word list, but the field should read the installed distribution version via `importlib.metadata`, as `src/preflight.py` already does | unassigned |
 | ~~`requirements.txt` versions are declared, not `pip freeze`d~~ | **Closed at R10** — re-pinned to the tested environment; `python preflight.py` reports drift and a standing test fails on it | — |
 | `test_checkpoints.py::test_hard_stop_around_commit_and_resumption[after_text]` fails intermittently **under heavy machine load** | Kills a real subprocess at a commit boundary; a race in the test's own timing, not in the checkpoint contract. Measured 2026-09-10: 2 observed failures during concurrent work, then **0 in 30 isolated, 12 whole-file and 10 full-suite runs**. Nothing in R08–R10 touches `src/scoring.py` | unassigned |
 
@@ -403,7 +413,7 @@ Two corrections came out of it, both recorded: the earlier "0.05% malformed time
 
 ## 5a. The next increment
 
-**R09** — documentation reconciliation. The whole inference track (R07a–R07d, R08a–R08c) is implemented and integrated, M7 is decided, and **A08 is closed**. What remains before scoring is documentation honesty (R09) and preflight/pilot readiness (R10).
+**R11's full pass**, once the user decides the D4/budget question the pilot raised (4.49 h projected against a 2 h budget). R12 (the mathematical demonstration) needs no data and can proceed in parallel.
 
 The corpus track is closed and Act 1's sample is drawn, so what remains on the critical path with **no external dependency** is the inference track: seven fixture-based increments that gate every Act 2 result.
 

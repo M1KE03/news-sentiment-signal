@@ -148,7 +148,15 @@ FINBERT_ID2LABEL = {0: "positive", 1: "negative", 2: "neutral"}
 # measurement and is never described as tooling available at the time (P17).
 FINBERT_POSTDATES_SAMPLE = True
 FINBERT_BATCH_SIZE = 32
-FINBERT_MAX_LENGTH = 64      # truncation is safe: these are headlines
+FINBERT_MAX_LENGTH = 64      # measured at R11: truncates 3,921 headlines (0.45%)
+
+# How batches are formed. "length_sorted" groups headlines of similar token
+# length so batches are not padded to an outlier's length: measured 2.20x
+# faster on this corpus, with padding falling from 2.33x the real token count
+# to 1.01x. It is NOT bit-identical to "input" order -- batch composition moves
+# individual scores by up to 4.2e-6 -- so this setting is part of the FinBERT
+# fingerprint and changing it invalidates the cached column (R11).
+FINBERT_BATCH_ORDER = "length_sorted"
 
 # Acquired from the CSV linked by Notre Dame SRAF on 2026-09-10.
 # This release postdates the sample and is used for retrospective measurement.

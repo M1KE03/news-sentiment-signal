@@ -169,6 +169,7 @@ class FinbertScorer:
         revision: str | None = config.FINBERT_REVISION,
         batch_size: int = config.FINBERT_BATCH_SIZE,
         max_length: int = config.FINBERT_MAX_LENGTH,
+        batch_order: str = config.FINBERT_BATCH_ORDER,
         device: str | None = None,
     ):
         if batch_size <= 0 or max_length <= 0:
@@ -180,6 +181,9 @@ class FinbertScorer:
         self.batch_size = batch_size
         self.max_length = max_length
         self.revision = revision
+        if batch_order not in ("length_sorted", "input"):
+            raise ValueError("batch_order must be 'length_sorted' or 'input'")
+        self.batch_order = batch_order
         kw = {"revision": revision} if revision else {}
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, **kw)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name, **kw)
@@ -210,23 +214,80 @@ class FinbertScorer:
 
     @property
     def fingerprint(self) -> dict:
-        """Every setting that changes the number, including truncation length."""
+        """Every setting that changes the number, including truncation length.
+
+        `batch_size` and `batch_order` are recorded because they **do** change
+        the number, which was measured rather than assumed (R11, 2026-09-10):
+        scoring the same 512 headlines with different batch composition moves
+        individual scores by up to **4.2e-6**. Padding is masked out of the
+        attention, but floating-point accumulation over different tensor shapes
+        is not bit-identical, so `batch_size=1` and `batch_size=32` disagree at
+        that scale too.
+
+        4.2e-6 on a [-1, 1] score is immaterial to every reported quantity --
+        it survives a ~345-headline daily mean, standardization and a
+        conversion to basis points reported at 0.1 bps precision. It is
+        recorded anyway, because this docstring's claim is meant to be true and
+        a provenance field that quietly excludes a setting that moves the
+        output is exactly the defect the cache contract exists to prevent.
+
+        A consequence worth stating: for FinBERT, resuming an interrupted pass
+        is **not bit-identical** to an uninterrupted one, because the surviving
+        unscored rows form different batches. This was already true before
+        length-sorted batching and is not introduced by it; the checkpoint
+        contract's guarantee is over *which rows carry which committed values*,
+        not over the last few ulps of a float32.
+        """
         return {
             "scorer": "finbert",
             "model": self.model.config._name_or_path,
             "revision": self.revision,
             "max_length": self.max_length,
+            "batch_size": self.batch_size,
+            "batch_order": self.batch_order,
             "id2label": {int(k): v.lower() for k, v in self.model.config.id2label.items()},
         }
 
     def _probs(self, texts: Sequence[str]) -> np.ndarray:
-        """Softmax probabilities in the model's own column order."""
+        """Softmax probabilities in the model's own column order.
+
+        Batches are formed from headlines of **similar token length** when
+        `batch_order == "length_sorted"`. Padding is what a batch of mixed
+        lengths pays for: on this corpus a natural-order pass computes 2.33x as
+        many token positions as the text actually contains, because every batch
+        is padded to its longest member. Grouping by length brings that to
+        1.01x and measured **2.20x** end to end (R11).
+
+        The result is always returned in **input order**; sorting is internal.
+
+        This is not bit-identical to natural order -- batch composition moves
+        individual scores by up to 4.2e-6, see `fingerprint` -- so the ordering
+        policy is recorded there rather than treated as a free optimisation.
+        """
         torch = self._torch
-        out = np.empty((len(texts), 3), dtype=np.float32)
-        for start in range(0, len(texts), self.batch_size):
-            batch = [str(t) for t in texts[start : start + self.batch_size]]
+        n = len(texts)
+        out = np.empty((n, 3), dtype=np.float32)
+        if n == 0:
+            return out
+
+        flat = [str(t) for t in texts]
+        if self.batch_order == "length_sorted":
+            # Tokenizing twice costs ~20 s over the whole corpus against hours
+            # saved; a stable sort keeps the pass deterministic for equal lengths.
+            lengths = np.fromiter(
+                (len(ids) for ids in self.tokenizer(
+                    flat, truncation=True, max_length=self.max_length,
+                    return_attention_mask=False, return_token_type_ids=False)["input_ids"]),
+                dtype=np.int32, count=n,
+            )
+            order = np.argsort(lengths, kind="stable")
+        else:
+            order = np.arange(n)
+
+        for start in range(0, n, self.batch_size):
+            idx = order[start : start + self.batch_size]
             enc = self.tokenizer(
-                batch,
+                [flat[i] for i in idx],
                 padding=True,
                 truncation=True,
                 max_length=self.max_length,
@@ -234,7 +295,7 @@ class FinbertScorer:
             ).to(self.device)
             with torch.no_grad():
                 probs = torch.softmax(self.model(**enc).logits, dim=-1)
-            out[start : start + len(batch)] = probs.cpu().numpy()
+            out[idx] = probs.cpu().numpy()
         return out
 
     def score(self, texts: Sequence[str]) -> np.ndarray:
@@ -280,10 +341,17 @@ def _configured_fingerprints() -> dict[str, dict]:
     return {
         "lm": LMScorer().fingerprint,
         "vader": VaderScorer().fingerprint,
+        # Must stay field-for-field identical to `FinbertScorer.fingerprint`.
+        # These two paths are compared against each other before any scoring
+        # begins, and `tests/test_scoring.py` asserts they agree -- adding a
+        # field to one and not the other aborts a pass that may already have
+        # loaded a corpus and a transformer.
         "finbert": {
             "scorer": "finbert", "model": config.FINBERT_MODEL,
             "revision": config.FINBERT_REVISION,
             "max_length": config.FINBERT_MAX_LENGTH,
+            "batch_size": config.FINBERT_BATCH_SIZE,
+            "batch_order": config.FINBERT_BATCH_ORDER,
             "id2label": {int(k): v.lower() for k, v in config.FINBERT_ID2LABEL.items()},
         },
     }

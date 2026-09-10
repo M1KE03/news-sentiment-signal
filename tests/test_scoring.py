@@ -651,3 +651,84 @@ def test_interrupted_subset_rescore_does_not_restore_old_values(tmp_path):
     result = scoring.score_all(heads, cache, [again], verbose=False)
     assert again.scored == 3
     np.testing.assert_allclose(result.score_lm, -.5)
+
+
+# ---------------------------------------------- R11: batch order and provenance
+
+
+def test_length_sorted_batching_returns_results_in_input_order(finbert):
+    """Sorting is internal; a caller must never see a reordered result."""
+    texts = ["Shares plunge after weak guidance",
+             "Q4 Adj. EPS $0.48-$0.54 vs $0.49 Est., Sales $1.719B-$1.769B vs $1.75B Est., "
+             "Narrows FY19 Guidance From $1.72-$1.80 To $1.740-$1.80 vs Est",
+             "Profit beats",
+             "Board announces no change to the dividend"]
+    ordered = finbert.score(texts)
+    one_at_a_time = np.array([finbert.score([t])[0] for t in texts])
+    # same ranking and near-identical values: the long headline must not have
+    # swapped places with the short ones on its way through the batcher
+    assert np.argsort(ordered).tolist() == np.argsort(one_at_a_time).tolist()
+    np.testing.assert_allclose(ordered, one_at_a_time, atol=1e-4)
+
+
+def test_batch_order_is_recorded_in_the_fingerprint(finbert):
+    """It changes the number, so the cache contract requires it to be recorded."""
+    assert finbert.fingerprint["batch_order"] == config.FINBERT_BATCH_ORDER
+    assert finbert.fingerprint["batch_size"] == finbert.batch_size
+
+
+def test_changing_batch_order_changes_the_recorded_identity():
+    other = scoring.FinbertScorer(batch_order="input")
+    default = scoring.FinbertScorer()
+    assert other.fingerprint != default.fingerprint
+    assert other.fingerprint["batch_order"] == "input"
+
+
+def test_an_unknown_batch_order_is_refused():
+    with pytest.raises(ValueError, match="batch_order must be"):
+        scoring.FinbertScorer(batch_order="whatever")
+
+
+def test_the_two_batch_orders_agree_to_the_measured_tolerance(finbert):
+    """R11 measured max|diff| = 4.2e-6 over 512 real headlines.
+
+    Asserted at 1e-4 -- loose enough not to be a hardware-fragile test, tight
+    enough that a genuine reordering defect (which would produce differences of
+    order 1) fails it immediately.
+    """
+    texts = SPOT_CHECK * 4
+    natural = scoring.FinbertScorer(batch_order="input").score(texts)
+    np.testing.assert_allclose(finbert.score(texts), natural, atol=1e-4)
+
+
+def test_an_empty_batch_is_handled(finbert):
+    assert finbert.score([]).shape == (0,)
+
+
+def test_the_cheap_and_loaded_finbert_identities_are_identical(finbert):
+    """The two paths must agree field for field.
+
+    `_configured_fingerprints` derives FinBERT's expected identity from config
+    without importing torch, and `score_all` compares it against the loaded
+    scorer before writing anything. Adding a field to one and not the other
+    aborts the pass -- which is the guard working, but only after a corpus and a
+    transformer have been loaded. It happened once, at R11, when `batch_size`
+    and `batch_order` were added to the scorer alone; this test is what makes
+    the next one cheap.
+    """
+    cheap = scoring._configured_fingerprints()["finbert"]
+    loaded = finbert.fingerprint
+    assert set(cheap) == set(loaded), (
+        f"field mismatch: only in config path {set(cheap) - set(loaded)}, "
+        f"only in loaded scorer {set(loaded) - set(cheap)}"
+    )
+    assert scoring._canonical_fingerprint(cheap) == scoring._canonical_fingerprint(loaded)
+
+
+def test_every_fingerprinted_finbert_setting_is_a_constructor_argument():
+    """A setting recorded as identity must be one a caller can actually vary."""
+    import inspect
+
+    params = set(inspect.signature(scoring.FinbertScorer.__init__).parameters)
+    for field in ("revision", "max_length", "batch_size", "batch_order"):
+        assert field in params, f"{field} is fingerprinted but not settable"
