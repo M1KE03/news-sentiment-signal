@@ -1,0 +1,237 @@
+{
+  "manifest_version": 1,
+  "completed_at_utc": "2026-09-10T13:31:42.363568+00:00",
+  "status": "complete",
+  "environment": {
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "executable": "C:\\Users\\micha\\Documents\\sentiment signal\\.venv\\Scripts\\python.exe",
+    "git_commit": "e67320bdb2374ca8b4d48b23e7f0cc61a25ac379",
+    "git_dirty": true,
+    "packages": {
+      "matplotlib": "3.11.1",
+      "numpy": "2.5.3",
+      "pandas": "3.0.5",
+      "pandas-market-calendars": "5.4.0",
+      "pyarrow": "25.0.1",
+      "pytest": "9.1.1",
+      "scikit-learn": "1.9.0",
+      "scipy": "1.18.1",
+      "statsmodels": "0.15.0",
+      "torch": "2.14.0+cpu",
+      "transformers": "5.16.1",
+      "vadersentiment": "3.3.2",
+      "yfinance": "0.2.66"
+    },
+    "dependency_drift": []
+  },
+  "settings": {
+    "window": [
+      "2010-01-01",
+      "2019-12-31"
+    ],
+    "news_source": "fnspid_benzinga",
+    "news_source_domains": [
+      "benzinga.com"
+    ],
+    "aggregation": "mean",
+    "dispersion_floor": 5,
+    "horizons": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "nw_maxlags": 5,
+    "hac_convention": "session_indexed",
+    "fdr_q": 0.05,
+    "sesoi_bps": 5.0,
+    "rq2_admissible": false,
+    "date_only_fallback": true,
+    "finbert": {
+      "model": "ProsusAI/finbert",
+      "revision": "4556d13015211d73dccd3fdd39d39232506f3e43",
+      "max_length": 64,
+      "batch_size": 32,
+      "batch_order": "length_sorted"
+    },
+    "lm_dictionary": {
+      "version": "1993-2025 (March 2026)",
+      "sha256": "e2d1328682bab7d2187684fb9f5420bb730401c9eefc00daf835edd203f4859d"
+    },
+    "seed": 20260830
+  },
+  "inputs": {
+    "headlines": {
+      "path": "C:\\Users\\micha\\Documents\\sentiment signal\\data\\interim\\headlines.parquet",
+      "present": true,
+      "bytes": 153399397,
+      "sha256": "7f23c101a2d9d90e749f48c1e15b2718a4d2f91dc0ada6f107b3b66c057b4d01"
+    },
+    "scores": {
+      "path": "C:\\Users\\micha\\Documents\\sentiment signal\\data\\interim\\scores.parquet",
+      "present": true,
+      "bytes": 97218622,
+      "sha256": "16e0526a18249e6314f66b1cacf836635cd8e913887ee11a5922f242c971a95f"
+    },
+    "market": {
+      "path": "C:\\Users\\micha\\Documents\\sentiment signal\\data\\interim\\market.parquet",
+      "present": true,
+      "bytes": 150423,
+      "sha256": "5f7b74552ce016ce5925d2a99b35da5f51e80e802fccc1cf0f63dd2cd37662c3"
+    },
+    "panel": {
+      "path": "C:\\Users\\micha\\Documents\\sentiment signal\\data\\processed\\daily_panel.parquet",
+      "present": true,
+      "bytes": 496683,
+      "sha256": "cc01b6d2247cf50f83c387ed18c07c90d5cb267cebc5ada94c024d6de18f72a0"
+    }
+  },
+  "scorer_identity": {
+    "fingerprints": {
+      "finbert": {
+        "batch_order": "length_sorted",
+        "batch_size": 32,
+        "id2label": {
+          "0": "positive",
+          "1": "negative",
+          "2": "neutral"
+        },
+        "max_length": 64,
+        "model": "ProsusAI/finbert",
+        "revision": "4556d13015211d73dccd3fdd39d39232506f3e43",
+        "scorer": "finbert"
+      },
+      "lm": {
+        "dict_version": "1993-2025 (March 2026)",
+        "n_negative": 2345,
+        "n_positive": 347,
+        "scorer": "lm",
+        "wordlist_sha1": "35fe755327d4fae7134c074e613a2ad98212890d"
+      },
+      "vader": {
+        "lexicon_size": 7506,
+        "scorer": "vader",
+        "version": "unknown"
+      }
+    },
+    "generation_id": "6d5b73ab681c4c7ab4c8a1e18bad5c13"
+  },
+  "outputs": [
+    {
+      "kind": "tables",
+      "file": "table3_lag_family.csv",
+      "sha256": "06b49972c617cc7da664add76301594b767ab9948e62ff7119d2d8aee745434a",
+      "bytes": 4071
+    },
+    {
+      "kind": "tables",
+      "file": "table_timing_diagnostic.csv",
+      "sha256": "5f07eaff88e315fabf7476d6ad2db3c9aa352f39bd5d8d111a98786d8e5fb1fd",
+      "bytes": 2695
+    },
+    {
+      "kind": "tables",
+      "file": "table4_effect_sizes.csv",
+      "sha256": "66c0e3ec6450e6937567715fe3d3e2405c7515c940be7d90c7d79d0c9ee0a74c",
+      "bytes": 6770
+    },
+    {
+      "kind": "tables",
+      "file": "table_paired_scorer_contrast.csv",
+      "sha256": "3041d61c1a91e474073a6a02c9b4e994da4e74e8941a33519f87fbd412869323",
+      "bytes": 635
+    },
+    {
+      "kind": "tables",
+      "file": "table_incremental_contribution.csv",
+      "sha256": "be4249d62961cd3f8b3b10834ba795cba198ab15aff652d70080af2c68f7c669",
+      "bytes": 875
+    },
+    {
+      "kind": "tables",
+      "file": "table5_rq4_wald.csv",
+      "sha256": "be599603647afd6c20d80393ce0024eb4951bec90066ed637642950f554a41fa",
+      "bytes": 866
+    },
+    {
+      "kind": "tables",
+      "file": "table5b_rq4_coefficients.csv",
+      "sha256": "0c865f96633fb4394599ea2f6bdca58542c40598f080940e910cb21ed41be78a",
+      "bytes": 4584
+    },
+    {
+      "kind": "figures",
+      "file": "figure2_lag_family.png",
+      "sha256": "1fd2ad730dcdb2774d0e2593bd054b1334664914d69df67e462d84aececd474f",
+      "bytes": 66961
+    },
+    {
+      "kind": "figures",
+      "file": "figure3_dispersion_volume.png",
+      "sha256": "1f68f95ea421b5473e9f6f8ef7654bab357ea8c6ea6e2e112c0efbc5c2204a11",
+      "bytes": 176235
+    },
+    {
+      "kind": "figures",
+      "file": "figure4_context.png",
+      "sha256": "c04aeb12599e018be689b61d061eb837a9ac831b7eb1d0ac691575a71600ab8c",
+      "bytes": 140430
+    },
+    {
+      "kind": "figures",
+      "file": "figure_acf_sentiment.png",
+      "sha256": "a0711e6c3b264fb375431ca14fa8772895eb42131102bc55caedbfff4687758d",
+      "bytes": 30427
+    },
+    {
+      "kind": "figures",
+      "file": "figure_coverage.png",
+      "sha256": "1279fbf2b6d2047629a8b4c46d9ffbc3198e3bf9b68a977bfab4aeb28d440f98",
+      "bytes": 132367
+    },
+    {
+      "kind": "tables",
+      "file": "run_summary.json",
+      "sha256": "5de4fa4cfdaf9bb43a3f3f889a0adc16a00581a2afb4c10f9ff20757ee8d9e2f",
+      "bytes": 4407
+    }
+  ],
+  "removed_superseded_outputs": [],
+  "eligibility": {
+    "n_panel_rows": 2516,
+    "n_eligible": 2453,
+    "n_excluded": 63,
+    "reason_order": [
+      "no_lead_return",
+      "zero_news",
+      "missing_tone",
+      "missing_control"
+    ],
+    "excluded_first_reason": {
+      "no_lead_return": 1,
+      "zero_news": 1,
+      "missing_tone": 0,
+      "missing_control": 61
+    },
+    "excluded_any_reason": {
+      "no_lead_return": 1,
+      "zero_news": 1,
+      "missing_tone": 1,
+      "missing_control": 62
+    },
+    "scorer": "finbert",
+    "horizon": 1,
+    "controls": [
+      "ret",
+      "rv_parkinson",
+      "log_volume_detrended"
+    ]
+  },
+  "coverage": {
+    "n_sessions": 2516,
+    "n_zero_news_days": 1,
+    "n_analysis_days": 2515
+  }
+}

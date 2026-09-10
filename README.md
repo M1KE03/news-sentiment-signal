@@ -9,14 +9,16 @@ the *next* session's SPY return. The two questions are kept apart on purpose: be
 is not assumed to imply a stronger market coefficient, and the contribution does not depend on
 finding a signal.
 
-> **Status: infrastructure, no results.** The protocols are written and frozen, the corpus is
-> assembled and censused, and the timing, caching, acquisition, panel and inference defects found by
-> the [2026-09-09 audit](docs/project-audit-2026-09-09.md) are being repaired in sequence — 23 of 29
-> increments done. **No text has been scored, no labels collected, no panel built, no model fitted,
-> and no empirical result of any kind exists.** 418 tests pass, 0 skip.
+> **Status: Act 2 complete, Act 1 blocked on human labels.** The protocols are written and frozen,
+> the corpus is assembled, scored and censused, and the defects found by the
+> [2026-09-09 audit](docs/project-audit-2026-09-09.md) are repaired — 29 of 29 increments, with
+> R13a outstanding only because it needs a person. **869,183 headlines scored by all three scorers;
+> Act 2's primary, secondary, paired-contrast and exploratory families are all estimated. No labels
+> have been collected, so no classification result exists.** 503 tests pass, 0 skip.
 >
 > Current state lives in [`docs/handover.md`](docs/handover.md); the live plan is the
-> [repair sequence](docs/audit-implementation-plan-2026-09-09.md).
+> [repair sequence](docs/audit-implementation-plan-2026-09-09.md); the clean-clone procedure is
+> [`docs/reproduction.md`](docs/reproduction.md).
 
 ---
 
@@ -46,21 +48,41 @@ guarantees, and a null or inconclusive Act 2 does not falsify Act 1.
 
 ## Findings
 
-**There are none yet, and this section stays empty until there are.**
+**Act 2, primary claim.** Daily aggregate FinBERT tone against the *next* session's SPY log return,
+conditional on the frozen control set, over 2,453 eligible sessions:
 
-No text has been scored, no labels collected, no panel built and no model fitted. This section
-previously held placeholder bullets with the shape of the expected answer already written in — an
-FDR-controlled five-horizon family, a block-permutation placebo, a transaction-cost bar. All three
-describe procedures the accepted protocols replaced, and writing the conclusion's skeleton before
-the evidence is the pattern this project spent the audit removing.
+> **β = −1.74 bps per 1 standard deviation of tone, 95% pointwise Newey–West interval
+> [−4.90, +1.41], p = 0.279.**
 
-What can be said now is what the design permits. Act 2 reports **two independent facts about the
-same interval**, always together: whether it excludes zero, and whether it lies inside ±5 bps. An
-earlier version of this section listed *three* conclusions — association, smallness, inconclusive —
-which overlapped: an interval of [1, 3] bps satisfied the first two at once and no rule chose
-between them. That framing was withdrawn (M2). Of the four combinations the two facts produce, one
-is an informative null and one is an explicit **inconclusive**; both are legitimate results and will
-be reported as such.
+Act 2 reports **two independent facts about the same interval**, always together. Here the interval
+*includes zero* and *lies inside ±5 bps*, which is the **informative null**: no association
+detected, and precise enough to exclude effects beyond the prespecified 5 bps yardstick.
+
+⚠️ **It is a boundary case, and the flag is part of the result.** The lower endpoint is −4.9031 —
+within 0.1 bps of −5, which is the reporting precision. One-tenth of a basis point wider and the
+conclusion would have been *inconclusive*. Quoting the null without this qualification would
+overstate it.
+
+**Nothing rejects anywhere else.** The 14-test secondary family: smallest BH q = 0.946, BY q = 1.000.
+The four exploratory RQ4 joint Wald tests: smallest BH q = 0.087. Two individual RQ4 coefficients
+have intervals excluding zero and neither is reported as a finding, because the joint test that
+governs them does not reject — that ordering is what stops a coefficient becoming a headline after
+someone has looked at it.
+
+**The two scorers cannot be separated.** `delta = β_FinBERT − β_LM = −2.43 bps, 95% [−6.88, +2.03]`,
+estimated on identical observations with the cross-equation HAC covariance. The
+[mathematical appendix](docs/mathematical-appendix.md) gives a reason internal to the design:
+averaging a median of 337 headlines per session compresses a *twofold* per-headline noise difference
+into a *1.034×* coefficient difference. So this is weak evidence about relative classification
+quality, not strong evidence of similarity.
+
+**Act 1 has no result.** The 800-item evaluation sample is drawn and the ingestion, calibration and
+paired-bootstrap code is implemented and tested — but labels require a person and none have been
+collected. Without them, two of three scorers cannot produce class predictions at all: LM and VADER
+need neutral thresholds fitted on the calibration part. No claim about classification quality
+appears anywhere in this repository.
+
+Full write-up with every number traced to a file: [`report/report.md`](report/report.md).
 
 ## Reproduce
 
@@ -76,6 +98,20 @@ python rescore.py                        # once: the FinBERT pass, cached by hea
 python run_all.py                        # minutes, no GPU: panel -> every table and figure
 pytest                                   # the firewall
 ```
+
+**Results are published only if the whole run succeeds.** `run_all.py` writes to a
+staging area and moves nothing into `report/tables/` or `figures/` until the last
+output is produced; `run_manifest.json` is written last and is therefore the
+commit point. A directory without a current manifest is an incomplete run, not a
+set of results — `src.publish.verify_published()` checks a published directory
+against its manifest and reports anything edited, deleted, or whose inputs have
+changed since. The manifest records input digests, every frozen setting that
+changes a number, the scorer identities, the eligibility ledger, and whether the
+git tree was dirty.
+
+`--skip-panel` reuses a saved panel, and refuses one whose recorded inputs or
+settings no longer match. That check is not a schema check: a panel built under
+different timing or scoring semantics has identical columns.
 
 Every command above refuses to start when its inputs are absent, and says which
 artifact is missing and what produces it. `python preflight.py --stage analysis`

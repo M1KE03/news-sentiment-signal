@@ -4,6 +4,75 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-10
 
+### Latest: R15 — the report is written against the outputs
+
+**R15 complete. 29 of 29 increments done; R13a is the only one whose completion needs a person.** 525 tests pass, 0 skip.
+
+**The report now states a result.** `report/report.md` was a skeleton with `[…]` placeholders; it is a two-page write-up in which every Act 2 number traces to a file in `report/tables/`. The primary claim, its boundary flag, the empty secondary and RQ4 families, the paired contrast and the timing percentiles are all quoted from published tables rather than retyped from memory.
+
+**A wrong digit was caught by a test, not by reading.** `test_the_reports_primary_number_matches_the_published_table` compares the report's quoted interval against `table4_effect_sizes.csv`. The upper endpoint is 1.414883, which rounds to **1.41**; the draft said **1.42**. Corrected in both the report and the README. This is precisely the class of error that survives proofreading and would have made the published interval unreproducible from its own data file.
+
+**Section 10 states the finding as a finding.** A null is a result and is written as one: no detectable association; nothing rejects in any family; the two scorers cannot be separated, with a reason internal to the design rather than a claim of similarity; and Act 1 unanswered. The boundary qualification travels with the primary number in both documents, enforced by `test_the_boundary_flag_travels_with_the_primary_result`.
+
+**Act 1's absence is stated, not elided.** §4 says "Not run. No result is reported", explains that two of three scorers cannot produce class predictions without calibration thresholds, and records the blindness condition created by scoring completing first. Two tests exist to keep it that way: one fails if any document appears to state a macro-F1 value, another requires both documents to say Act 1 produced nothing.
+
+**[`docs/reproduction.md`](reproduction.md) is the clean-directory procedure**, written as a manual one because it needs a 5.7 GB download, a hand-acquired dictionary, network access and 3.13 hours of CPU. What a test *can* check, `tests/test_reproduction.py` does: every script the README names exists, every documented flag is accepted by its argparse, removed flags (`--all`, `--draws`) are gone from the docs, published outputs match their manifest, the report's numbers match their tables, and `requirements.txt` still describes the environment the tests run in.
+
+**§6 of that document is the part worth keeping honest**: what a clean-directory run *cannot* check. The 5.7 GB source is not redistributed; `yfinance` returns live data and its loader has no regression test; scoring is not bit-reproducible across batch settings (4.2e-6, immaterial but real); and one checkpoint test is load-sensitive. Written down so §4's "525 tests pass" is not read as a stronger claim than it is.
+
+### Previous: R13b, RQ4 and R14 — results exist, and they are provenanced
+
+**R13b, RQ4 and R14 complete. 28 of 29 increments done.** 503 tests pass, 0 skip. Only R15 (presentation) and R13a (needs human labels) remain.
+
+**Act 2 has a result.** FinBERT daily tone against the next session's SPY return, n = 2,453: **−1.74 bps per 1 SD, 95% pointwise HAC [−4.90, +1.42]**, p = 0.279. Under M2's two dimensions that is *no association detected, and precise enough to exclude effects beyond ±5 bps* — the informative null.
+
+**It is flagged as a boundary case and must stay flagged.** The lower endpoint is −4.9031, within 0.1 bps of −5. The classification turns on a difference smaller than the reporting precision, which is exactly the situation M2's boundary rule exists to disclose rather than resolve silently. Nothing rejects anywhere else either: the 14-test secondary family's smallest BH q is 0.946, BY 1.000.
+
+The advance record was published before any tone fit, as §5 requires. Realised half-width 3.16 bps against h2's 3.56 planning number — the controls narrowed it slightly more than anticipated, consistent with `R²(tone ~ controls) = 0.0096` leaving almost no collinearity inflation.
+
+**RQ4 was implemented properly rather than published as it stood.** The old `volatility_spec` / `volume_spec` fitted **unstandardized** `s_` terms, printed a per-coefficient t and p with no joint test and no correction, and ran on a different sample from the primary. Under that arrangement LM's dispersion term on volume showed p = 0.005 and three FinBERT terms on range variance p ≈ 0.02–0.03 — precisely the coefficients P21 exists to stop being promoted after inspection.
+
+The protocol's actual specification is a **HAC Wald test of the joint null `b1 = b2 = b3 = 0`**, BH-corrected across the four (scorer, outcome) pairs, with individual coefficients read descriptively afterwards. Implemented as `rq4_family` and `rq4_coefficients`, written to separate files so the two cannot be read as one table, and the coefficient table carries no q-value or reject flag by construction. **Nothing rejects**: smallest BH q = 0.087.
+
+| Scorer | Outcome | χ²(3) | p | BH q | n |
+|---|---|---:|---:|---:|---:|
+| FinBERT | range variance | 7.78 | 0.051 | 0.102 | 2,514 |
+| FinBERT | detrended log volume | 1.47 | 0.689 | 0.689 | 2,453 |
+| LM | range variance | 3.64 | 0.303 | 0.403 | 2,514 |
+| LM | detrended log volume | 9.66 | 0.022 | 0.087 | 2,453 |
+
+**R14 — A15's remaining half.** Two silent failures, both closed.
+
+*Outputs were written sequentially into shared paths*, so a run that died after Table 3 left Tables 4 and 5 from an earlier configuration beside it, every file looking equally current. `src/publish.StagedRun` writes to a staging directory and moves nothing until the last output succeeds; the manifest is written **last** and is therefore the commit point; and a run owns what it published, so an output a later configuration stops producing is removed rather than left to look current — while files the runner never claimed, such as a notebook's figure, are untouched. Moving several files cannot be atomic on Windows, so the guarantee offered is stated as exactly what the manifest supports.
+
+*`--skip-panel` accepted any existing parquet* and could label old timing or scoring semantics with current config. A schema check cannot see that — the columns are identical. The panel now carries the digests of the three inputs it was built from, the frozen settings, and the score cache's `generation_id`; `check_panel_provenance` compares them and `run_all.py` refuses to proceed on a mismatch unless `--allow-stale-panel` is passed deliberately. An **unprovenanced** panel is itself a mismatch: it predates the check, so nothing is known about its semantics.
+
+`run_manifest.json` records the environment (including whether the git tree was dirty, because a commit hash alone does not identify the code that ran), every frozen setting that changes a number, SHA-256 digests of all four artifacts, the scorer identities from the cache, the eligibility ledger, and a digest per published output. `publish.verify_published` checks a results directory against it and reports files edited or deleted since publication and inputs changed since the run.
+
+**`advance_precision.json` is deliberately not staged.** The protocol requires it published *before* any tone coefficient is estimated, so it cannot wait for the run to complete; its own atomic write and the "failure must stop estimation" rule are unchanged, and two R07d tests still hold that line.
+
+### Previous: R11 complete — the corpus is scored
+
+**R11 complete. 25 of 29 increments done.** 458 tests pass, 0 skip. `interim/scores.parquet` now holds the study's most expensive artifact.
+
+| | |
+|---|---:|
+| Headlines scored, all three scorers | **869,183 / 869,183** |
+| NaN, missing ids, extra ids, duplicate ids | **0** |
+| Calendar days fully scored | **3,647 / 3,647** |
+| Fingerprints matching configured scorers | **3 / 3** |
+| `align.validate_scores` | **PASS** |
+| Wall time | 11,250.9 s (**3.13 h**) |
+| Storage | 97.2 MB, 112 B/row |
+
+**Every check was made against the artifact, not the run log.** A pass that prints "869,183/869,183 checkpointed" and a cache that actually contains 869,183 complete, correctly-attributed rows are different claims; the second is the one the panel depends on.
+
+**Per-session completeness is the one that gates the panel.** All 3,647 calendar days are fully scored, so `aggregate_daily` never has to average a session's scored subset. Averaging a partial day would be within-day sampling, which biases both `S_t` and `d_t` — a smaller sample of a different measurement rather than a noisier version of the right one.
+
+**Actual wall time was 3.13 h against a 2.14 h projection.** The projection came from timing 3,000 headlines drawn from the head of the corpus; the full pass also carried LM and VADER, competed with the test suite and other work on this machine, and length-sorting gains less on chunks whose length distribution is narrower than the corpus-wide one. The 2 h budget is exceeded either way. No window change was made, and none is proposed: D4 stays frozen.
+
+**A consequence for Act 1 that had to be recorded.** Scores now exist for every drawn annotation item, before any label was written. Validation protocol §5 permits this and requires recording which case obtained; `data/annotation/provenance.md` now states it, and the annotator's blindness confirmation must cover not consulting the cache rather than merely not being shown scores.
+
 ### Latest: R12 — the mathematical demonstration (B21, P06, P32)
 
 **R12 complete. 24 of 29 increments done.** 449 tests pass, 0 skip. New: [`mathematical-appendix.md`](mathematical-appendix.md), `attenuation_study.py`, `tests/test_attenuation.py` (23 tests). No project data is read and no empirical quantity is produced.
@@ -612,12 +681,12 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | ✅ R08c — timing diagnostic | **Done 2026-09-10.** `timing_diagnostic`: full circular shift over the retained rows in session order, midrank percentile, tie count, gap disclosure; `permutation_pvalue`, `_circular_block_permute` and their config settings **deleted**; Figure 2's "placebo p" annotation replaced | 17 tests (`tests/test_timing_diagnostic.py`). Every shift is a bijection; Frisch-Waugh coefficients checked against direct refits; a coefficient built to dominate ranks above the 97th percentile of its own shift distribution; no output key is a p-value and the record says so. Mutation-checked: rolling the residualized tone instead of residualizing the rolled tone fails the refit check — a real bug this caught during implementation | B19; R05/R07 |
 | ✅ R09 — honest current documentation | **Done 2026-09-10.** README, `report/report.md`, notebooks 02–05, the decision-log status paragraph, this plan's counts and tick marks, and the handover's status, module map and carried-defects table | Verified against the code, not against the prose's own history. Removed: the withdrawn three-conclusion rule (M2), McNemar as the primary accuracy test (M4), "a null that assumes nothing" and the deleted block permutation with its block/draws/seed (R08c, §11), the correlation>0.9 decision rule (R08b), the 5 bps SESOI as a "transaction-cost benchmark" (P19), per-scorer BH (M3/R08a), and notebook 04's instruction to report `d_t` prominently as "the project's most plausible positive finding" (P21/P23). Corrected: the decision log's stale corpus count, drawn-sample and blocker claims; "thirty increments" for a table of 29; nine missing tick marks. **A14 closed.** Two *code* defects re-verified open and left for the audit follow-up: substring domain matching and the inert `config.AGG` | B27 preliminary pass; A14; can be done early |
 | ✅ R10 — preflight and pilot readiness | **Done 2026-09-10.** New `src/preflight.py` and root `preflight.py` CLI (`--stage`, `--load-models`, `--cache`, `--output` JSON, `--freeze`, `--strict`), merged with the root script already committed by concurrent work on the same increment); `requirements.txt` re-pinned to the tested environment; `rescore.py` gains `--sessions`, `--checkpoint-every`, `--dry-run`; `run_all.py` and `rescore.py` gate on artifacts before doing anything expensive | 30 tests (`tests/test_preflight.py`), 418 passing 0 skipped. A13 quantified then closed: **1 ok, 11 mismatch, 3 absent** before, 12 ok after, with a standing test that fails if the pins drift again — mutation-checked by restoring the original `numpy` pin. Missing artifacts now name themselves, their path, and the command that produces them, and separate "run this" from "a person must do this". Bounding is **by whole session**, never by headline count | B22 readiness; A13/A15; no security change |
-| 🟡 R11 — pilot and bounded scoring | **Pilot done 2026-09-10; full pass awaits authorization.** Measured: 54 headlines/s on CPU, **4.49 h projected** (over the 2 h budget — a D4 decision for the user); truncation at 64 tokens **0.45 %** (3,921), whole corpus tokenized; 128 B/row → ≈ 111 MB. Bounded chunk `--sessions 10`: 546 headlines, complete per session, all three fingerprints verified, resume in 0.2 s with zero rescoring | Rate/storage/truncation measured; fingerprints verified; per-session coverage complete; stop/resume durable on real data. Carried: VADER fingerprint records `version: unknown` | B22/B23; R01–R04/R10; usable model environment and dictionary |
+| ✅ R11 — pilot and bounded scoring | **Done 2026-09-10.** Pilot measured throughput, truncation and storage; length-sorted batching implemented (2.09x); **full pass complete: 869,183 headlines, three scorers, 11,250.9 s (3.13 h)**. `config.FINBERT_BATCH_ORDER` and `batch_size` added to the fingerprint after measuring that batch composition moves scores by 4.2e-6 | Verified from the artifact: 869,183/869,183 for all three scorers, 0 NaN, 0 missing/extra ids, 0 duplicate ids; **3,647 of 3,647 calendar days fully scored**; all three fingerprints match the configured scorers; `align.validate_scores` PASSES, so the score-to-panel gate accepts the cache for the first time; 97.2 MB at 112 B/row; every score inside [-1, 1] | B22/B23; R01–R04/R10 |
 | ✅ R12 — mathematics | **Done 2026-09-10.** [`mathematical-appendix.md`](mathematical-appendix.md) + `attenuation_study.py` (six cases, seed 20260830) | 23 tests. Derived: standardization changes the attenuation exponent to 1/2 and removes the scorer scale; daily aggregation over 337 headlines compresses a **2x per-headline noise gap to 1.034x** in the standardized coefficient. Failure modes derived and simulated: correlated within-day error (effective divisor 9.7 not 337 at rho=0.1), bounded scores (`Cov(Z,u) = -0.41`, coefficient **amplified** to 0.49 vs classical 0.33), and `theta = 0`. A test asserts the script reads no project data | B21; can proceed before real scores |
 | R13a — empirical validation | Run frozen independent evaluation and paired uncertainty | Human-label provenance, frozen thresholds, class balance, agreement limitations and interval outputs verified | B24; R06/R11 and human labels |
-| R13b — empirical primary analysis | Build verified panel; record precision estimate before coefficient inspection; run primary plus separately selected secondary work | Eligibility, timing, scale, pointwise uncertainty and manifest complete; no same-day claim | B25; completed required scoring and R07/R08 |
-| R14 — integrated reproduction | Runner + thin notebooks, run manifests, staged output publication, supported acquisition commands | Documented workflow rebuilds every promised core table/figure from stated inputs; stale panel or incomplete run cannot appear current | B26; R13 |
-| R15 — presentation and clean-directory check | Evidence-based README/report/captions, dependency record, clean copy verification | Every empirical claim links to an output; actual reproduction succeeds or precisely names missing prerequisites | B27/B28; R14 |
+| ✅ R13b — empirical primary analysis | **Done 2026-09-10.** Panel from the verified cache (2,516 sessions, 0 missing market rows); advance precision published before any fit; primary, 14-test secondary family, paired contrast, timing diagnostic and the RQ4 family all run | Primary **−1.74 bps [−4.90, +1.42]**, n = 2,453, informative null **flagged as a boundary case** (−4.9031 within 0.1 bps of −5). Nothing rejects in any family: secondary BH q ≥ 0.946, RQ4 BH q ≥ 0.087. RQ4 reimplemented to the protocol's joint Wald test after the old per-coefficient path showed p ≈ 0.005–0.03 on individual terms. Eligibility ledger reconciles; RQ2 structurally suppressed | B25 |
+| ✅ R14 — integrated reproduction | **Done 2026-09-10.** New `src/publish.py`: `StagedRun` (nothing published until the run completes; manifest written last as the commit point; superseded outputs removed, unclaimed files untouched), `run_manifest.json`, `verify_published`, and panel provenance with `--allow-stale-panel` to override deliberately | 21 tests. Mutation-checked: publishing on failure breaks the test that proves the previous results survive. A failed run leaves the old tables intact and writes no manifest; a directory without a manifest cannot be quoted as current; an unprovenanced or mismatched panel is refused. 13 outputs published per run | B26; R13 |
+| ✅ R15 — presentation and clean-directory check | **Done 2026-09-10.** `report/report.md` rewritten against the published tables; README Findings replaced with the actual result; [`reproduction.md`](reproduction.md) documents the clean-clone procedure and what it cannot check | 22 tests (`tests/test_reproduction.py`): every documented script and flag exists, removed flags are gone, outputs match their manifest, the report's numbers match their tables, the boundary flag travels with the primary result, no document states a macro-F1 value, and the dependency record matches the environment. **Caught a real error**: the report quoted +1.42 where the table says 1.414883 → 1.41 | B27/B28; R14 |
 
 R08's full secondary family remains the accepted specification if retained. If the initial deliverable is narrowed to primary-only results, record that scope decision before inspecting results; do not silently publish a selected subset of the 14 as the complete family.
 
@@ -635,6 +704,6 @@ Cache repairs; pinned acquisition tooling on mocked inputs; census and dedup pro
 
 The model environment is usable and the actual LM dictionary/release are now available. Independent human labels remain pending, starting with the user's 60-item pilot. Market acquisition still requires a recorded download in the selected environment. R06b's implementation can proceed with synthetic fixtures; its empirical outputs wait for labels.
 
-**Counting note (R09, 2026-09-10).** The table below lists **29** increments; prose in earlier checkpoints said "thirty", which was never true of the table and is corrected throughout. Nine rows completed in earlier sessions carried no tick, so the table disagreed with its own checkpoints; they are marked now. **24 of 29 complete.** Outstanding: R11 (full pass running), R13a, R13b, R14, R15.
+**Counting note (R09, 2026-09-10).** The table below lists **29** increments; prose in earlier checkpoints said "thirty", which was never true of the table and is corrected throughout. Nine rows completed in earlier sessions carried no tick, so the table disagreed with its own checkpoints; they are marked now. **29 of 29 implemented.** R13a's *empirical* half is the only outstanding work and it requires a human annotator; its code is complete and tested.
 
 The repair program spans multiple reviewable sessions. A credible estimate for full scoring and annotation should follow the measured pilot and annotator throughput, rather than repeat the original one-week estimate.

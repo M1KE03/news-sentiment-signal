@@ -25,7 +25,7 @@ The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-0
 1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
 2. **§5a** names the next increment and why it is next.
 3. **§6** is what you cannot do without a human.
-4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **449 passing, 0 skipped**, is the baseline.
+4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **525 passing, 0 skipped**, is the baseline.
 
 Three facts that will save you an hour:
 
@@ -248,6 +248,16 @@ A **10-session bounded chunk was scored** (546 headlines, 17.4 s) and then check
 
 **The full pass has not been run.** The plan's rule for an over-budget projection is to shorten the window (D4), which is frozen and needs a dated decision-log entry from the user. The alternatives on the table: accept 4.5 h as a one-time cost; or first add length-sorted batching, which changes no output and plausibly recovers 1.5–2×. Neither is taken here.
 
+### R13b, RQ4 and R14 — the first results, and the machinery that dates them
+
+**Act 2's primary claim: −1.74 bps per 1 SD, 95% pointwise [−4.90, +1.42], n = 2,453.** No association detected, and precise enough to exclude effects beyond ±5 bps — the informative null. **Flagged as a boundary case**: the lower endpoint is −4.9031, within 0.1 bps of −5, so the label turns on less than the reporting precision. That flag travels with the number wherever it is quoted.
+
+Nothing rejects anywhere. Secondary family: smallest BH q 0.946, BY 1.000. RQ4 family: smallest BH q 0.087. Paired contrast `delta = −2.43 bps [−6.88, +2.03]`.
+
+**RQ4 was rebuilt before being reported.** The old path gave per-coefficient p-values of 0.005–0.03 on individual dispersion and tone terms, unstandardized, uncorrected, on a different sample from the primary. That is the arrangement P21 exists to prevent. The protocol's joint HAC Wald test of `b1 = b2 = b3 = 0` replaces it; the coefficient table now carries no q-value or reject flag by construction, and lives in a separate file so the two cannot be read as one.
+
+**R14 closed A15's remaining half.** A failed run now publishes nothing and leaves the previous results intact; the manifest is written last and is the commit point; a results directory without one cannot be quoted as current. Panels carry the digests and settings they were built under, so a stale panel is refused rather than relabelled with current config — which was A15's specific concern and is invisible to a schema check.
+
 ## 4. Checklist against the implementation plan
 
 Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigger)
@@ -336,8 +346,10 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R11 | — | 🟡 **Pilot done.** 54 headlines/s, 4.49 h projected, 0.45 % truncation, 111 MB; 10-session chunk scored, verified, resumed. **Full pass awaits the user's D4/budget decision** |
 | R12 | — | ✅ Attenuation derivation + six-case simulation. Standardization gives exponent 1/2; aggregation over 337 headlines compresses a 2x noise gap to 1.034x; bounded scores **amplify** rather than attenuate |
 | — | — | **8 of 15 findings' repairs remain**: R11–R15. A13 and A14 closed at R10/R09 |
-| R13a, R13b | — | ⬜ Empirical validation and primary analysis |
-| R14, R15 | — | ⬜ Reproduction and presentation |
+| R13a | — | ⬜ **Blocked on human labels.** Handoff de-risked and tested; `provenance_pilot.json` template added |
+| R13b | — | ✅ Act 2 run. Primary **−1.74 bps [−4.90, +1.42]**, informative null, **boundary case flagged**. Nothing rejects in any family |
+| R14 | A15 | ✅ Staged publication, run manifest, panel provenance. A failed run publishes nothing |
+| R15 | — | ✅ Report written against the published tables; README Findings replaced; [`reproduction.md`](reproduction.md) + 22 tests holding the docs to the code |
 
 **Twelve findings are closed (A01–A12)**, A14 is closed by this R09 pass, A15 is partly closed, and A13 remains open (preflight and dependency inventory — R10).
 
@@ -355,8 +367,8 @@ Verified line by line at R09 (2026-09-10). Four rows had already been fixed in e
 | Notebook 04 instructed a predetermined finding | `notebooks/04_volume_vol.ipynb` — "the act most likely to yield a positive result" and "report the d_t coefficient prominently" | **Closed at R09** |
 | ~~Placebo resamples blocks with replacement~~ | **Closed at R08c** — function deleted; `timing_diagnostic` replaces it | — |
 | RQ4 exploratory specs still use old-plan conventions; every primary, return-family, paired and timing path now uses `primary`/`eligibility` | `volatility_spec`, `volume_spec` (and the `predictive` helper they lean on) | optional RQ4 increment |
-| Source filter matches by **substring**, so a host like `notbenzinga.com` would pass | `src/data.py:112` — `any(d in h for d in domains)`; re-verified open at R09 | audit follow-up |
-| `config.AGG` is never read — `aggregate_daily` hardcodes `.mean()`, so changing the flag changes nothing | `config.py:161`, `src/align.py:467`; re-verified open at R09 | audit follow-up |
+| ~~Source filter matches by **substring**~~ | **Closed 2026-09-10.** `data._host_matches` requires an exact host or a true subdomain; `notbenzinga.com`, `benzinga.com.evil.example` and `fakebenzinga.community` are now rejected. 4 tests | — |
+| ~~`config.AGG` is never read~~ | **Closed 2026-09-10.** `aggregate_daily(agg=...)` reads it, validates against `config.AGG_CHOICES`, and records the choice in `coverage["aggregation"]` so a median run cannot be mistaken for the primary. `d_t` stays a standard deviation under either rule. 5 tests | — |
 | VADER's cache fingerprint records `version: unknown` | `src/scoring.py` — the package exposes no version attribute; the lexicon size (7,506) pins the word list, but the field should read the installed distribution version via `importlib.metadata`, as `src/preflight.py` already does | unassigned |
 | ~~`requirements.txt` versions are declared, not `pip freeze`d~~ | **Closed at R10** — re-pinned to the tested environment; `python preflight.py` reports drift and a standing test fails on it | — |
 | `test_checkpoints.py::test_hard_stop_around_commit_and_resumption[after_text]` fails intermittently **under heavy machine load** | Kills a real subprocess at a commit boundary; a race in the test's own timing, not in the checkpoint contract. Measured 2026-09-10: 2 observed failures during concurrent work, then **0 in 30 isolated, 12 whole-file and 10 full-suite runs**. Nothing in R08–R10 touches `src/scoring.py` | unassigned |
@@ -413,7 +425,7 @@ Two corrections came out of it, both recorded: the earlier "0.05% malformed time
 
 ## 5a. The next increment
 
-**R11's full pass**, once the user decides the D4/budget question the pilot raised (4.49 h projected against a 2 h budget). R12 (the mathematical demonstration) needs no data and can proceed in parallel.
+**R13a** — and it needs the user's 60 pilot labels, not more code. Every other increment is complete. The handoff is prepared and tested end to end: `pilot_worksheet.csv`, `provenance_pilot.json` (rejected until the human declarations are filled), and an ingestion path dry-run against the exact file a spreadsheet will produce.
 
 The corpus track is closed and Act 1's sample is drawn, so what remains on the critical path with **no external dependency** is the inference track: seven fixture-based increments that gate every Act 2 result.
 

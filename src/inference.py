@@ -395,41 +395,15 @@ def effect_size_table(family: pd.DataFrame, sigma_s: float = 1.0) -> pd.DataFram
 # p-value is an invitation to quote it as a comparison.
 
 
-def volatility_spec(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLAGS):
-    """Section 6.4, range variance: next-day rv_parkinson on level, intensity and dispersion.
-
-    `rv_parkinson` is the intraday range-based variance proxy, not total daily
-    volatility: it uses the high-low range only, so variation within the range
-    and overnight moves are invisible to it (P22).
-    """
-    X = pd.DataFrame(
-        {
-            f"s_{scorer}": panel[f"s_{scorer}"],
-            f"abs_s_{scorer}": panel[f"s_{scorer}"].abs(),
-            f"d_{scorer}": panel[f"d_{scorer}"],
-            "rv_parkinson": panel["rv_parkinson"],
-        }
-    )
-    return nw_ols(panel["rv_parkinson_lead1"], X, maxlags=maxlags)
-
-
-def volume_spec(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLAGS):
-    """Section 6.4, volume: next-day detrended log volume, same regressors plus |ret_t|.
-
-    The dispersion coefficient is the one to read first: disagreement predicting
-    volume is the most plausible positive finding in the project, and it is a
-    documented one (Tetlock 2007).
-    """
-    X = pd.DataFrame(
-        {
-            f"s_{scorer}": panel[f"s_{scorer}"],
-            f"abs_s_{scorer}": panel[f"s_{scorer}"].abs(),
-            f"d_{scorer}": panel[f"d_{scorer}"],
-            "log_volume_detrended": panel["log_volume_detrended"],
-            "abs_ret": panel["ret"].abs(),
-        }
-    )
-    return nw_ols(panel["log_volume_detrended_lead1"], X, maxlags=maxlags)
+# `volatility_spec` and `volume_spec` were removed when RQ4 was implemented to
+# the protocol (audit A08). They fitted **unstandardized** `s_` terms, printed a
+# per-coefficient t and p for each with no joint test and no correction, and ran
+# on a different sample from the primary -- the arrangement in which "the
+# dispersion coefficient" becomes a headline after someone has looked at it.
+# `rq4_family` (joint HAC Wald, BH-corrected) and `rq4_coefficients`
+# (descriptive) replace them. Deleted rather than deprecated: a function
+# returning a per-coefficient p-value for an exploratory term is an invitation
+# to quote it.
 
 
 def analysis_sample(panel: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -1445,3 +1419,198 @@ def timing_diagnostic(
         ),
         "shifted_coefficients": shifted,
     }
+
+
+# =====================================================================
+# RQ4: the exploratory family (protocol section 6, P21)
+# =====================================================================
+#
+# Audit A08: `volatility_spec` and `volume_spec` fitted **unstandardized** `s_`
+# terms, reported a per-coefficient t and p for each, applied no correction, and
+# ran on a different sample from the primary. That is precisely the arrangement
+# in which "the dispersion coefficient" gets promoted to a headline after
+# someone has looked at it -- which section 6 and P21 exist to prevent.
+#
+# What the protocol specifies instead:
+#
+#   RV_(t+1) = a + b1 z(S_t) + b2 z(|S_t|) + b3 z(d_t) + phi RV_t + e
+#   lv_(t+1) = a + b1 z(S_t) + b2 z(|S_t|) + b3 z(d_t) + phi lv_t + psi |r_t| + e
+#
+# **The primary test for each is a HAC Wald test of the joint null
+# b1 = b2 = b3 = 0.** Individual coefficients are descriptive afterwards, with
+# pointwise intervals. BH within the family of Wald tests.
+
+RQ4_OUTCOMES = ("rv_parkinson_lead1", "log_volume_detrended_lead1")
+RQ4_TONE_TERMS = ("z_s", "z_abs_s", "z_d")
+
+
+def rq4_design(panel: pd.DataFrame, scorer: str, outcome: str) -> tuple[np.ndarray, dict]:
+    """Eligible rows for one RQ4 equation, with its own reason ledger.
+
+    `d_t` is defined only when `n_t >= 5`, so this sample is smaller than the
+    primary's and the reduction is reported rather than absorbed (section 6).
+    """
+    if outcome not in RQ4_OUTCOMES:
+        raise ValueError(f"outcome must be one of {RQ4_OUTCOMES}, got {outcome!r}")
+    _require_full_calendar_panel(panel, PRIMARY_HORIZON)
+
+    num = lambda c: pd.to_numeric(panel[c], errors="coerce")
+    control = "rv_parkinson" if outcome.startswith("rv_") else "log_volume_detrended"
+    needed = [f"s_{scorer}", f"d_{scorer}", outcome, control]
+    if outcome.startswith("log_volume"):
+        needed.append("ret")
+
+    flags = {
+        "no_outcome": num(outcome).isna().to_numpy(),
+        "zero_news": (num("n_headlines").fillna(0) < 1).to_numpy(),
+        "missing_tone": num(f"s_{scorer}").isna().to_numpy(),
+        # d_t is NaN below the dispersion floor by construction, not by defect
+        "dispersion_undefined": num(f"d_{scorer}").isna().to_numpy(),
+        "missing_control": np.zeros(len(panel), dtype=bool),
+    }
+    for c in needed:
+        if c not in (f"d_{scorer}", outcome, f"s_{scorer}"):
+            flags["missing_control"] |= num(c).isna().to_numpy()
+
+    keep = ~np.logical_or.reduce(list(flags.values()))
+    order = ("no_outcome", "zero_news", "missing_tone", "dispersion_undefined",
+             "missing_control")
+    first, claimed = {}, np.zeros(len(panel), dtype=bool)
+    for reason in order:
+        hit = flags[reason] & ~claimed
+        first[reason] = int(hit.sum())
+        claimed |= flags[reason]
+
+    ledger = {
+        "scorer": scorer, "outcome": outcome, "control": control,
+        "n_panel_rows": int(len(panel)), "n_eligible": int(keep.sum()),
+        "n_excluded": int((~keep).sum()), "reason_order": list(order),
+        "excluded_first_reason": first,
+        "n_lost_to_dispersion_floor": int(flags["dispersion_undefined"].sum()),
+        "dispersion_floor": int(config.MIN_HEADLINES_FOR_DISPERSION),
+    }
+    assert sum(first.values()) == ledger["n_excluded"], "RQ4 ledger does not reconcile"
+    return keep, ledger
+
+
+def rq4_fit(panel: pd.DataFrame, scorer: str, outcome: str,
+            maxlags: int = config.NW_MAXLAGS,
+            convention: str = config.HAC_CONVENTION):
+    """One RQ4 equation, all three tone terms standardized on its own sample."""
+    keep, ledger = rq4_design(panel, scorer, outcome)
+    if int(keep.sum()) <= 8:
+        raise ValueError(f"too few eligible sessions for RQ4; ledger: {ledger}")
+    positions = np.flatnonzero(keep)
+    rows = panel.loc[keep]
+
+    tone = pd.to_numeric(rows[f"s_{scorer}"], errors="coerce").astype(float)
+    disp = pd.to_numeric(rows[f"d_{scorer}"], errors="coerce").astype(float)
+    control = ledger["control"]
+
+    design = pd.DataFrame(index=rows.index)
+    for name, series in (("z_s", tone), ("z_abs_s", tone.abs()), ("z_d", disp)):
+        sd = float(series.std(ddof=1))
+        if not np.isfinite(sd) or sd == 0.0:
+            raise ValueError(f"{name} has zero or undefined standard deviation")
+        design[name] = (series - float(series.mean())) / sd
+    design[control] = pd.to_numeric(rows[control], errors="coerce").astype(float)
+    if outcome.startswith("log_volume"):
+        design["abs_ret"] = pd.to_numeric(rows["ret"], errors="coerce").abs().astype(float)
+
+    target = pd.to_numeric(rows[outcome], errors="coerce").astype(float)
+    session_index = positions if convention == "session_indexed" else None
+    fit = fit_hac(target, design, maxlags=maxlags, session_index=session_index,
+                  convention=convention)
+    fit.ledger = ledger
+    fit.estimand = f"exploratory_rq4:{outcome}"
+    return fit
+
+
+def hac_wald(fit: HACFit, terms: Sequence[str]) -> dict:
+    """Joint HAC Wald test that every named coefficient is zero.
+
+    `W = (R b)' (R V R')^-1 (R b)`, chi-square with `rank(R)` degrees of
+    freedom. This is the RQ4 primary test: it asks whether tone carries *any*
+    information about the outcome, which is a different and prior question to
+    which of the three terms carries it.
+    """
+    from scipy import stats as _stats
+
+    missing = [t for t in terms if t not in fit.names]
+    if missing:
+        raise KeyError(f"fit has no term(s) {missing}")
+    idx = [fit.names.index(t) for t in terms]
+    b = fit.params.to_numpy()[idx]
+    V = fit.cov.to_numpy()[np.ix_(idx, idx)]
+    if np.linalg.matrix_rank(V) < len(idx):
+        raise ValueError("the restricted covariance is singular; the joint test is undefined")
+    stat = float(b @ np.linalg.solve(V, b))
+    df = len(idx)
+    return {"wald_chi2": stat, "df": df,
+            "p": float(_stats.chi2.sf(stat, df)), "terms": list(terms)}
+
+
+def rq4_family(panel: pd.DataFrame, scorers: Sequence[str] = ("finbert", "lm"),
+               q: float = config.FDR_Q, maxlags: int = config.NW_MAXLAGS,
+               convention: str = config.HAC_CONVENTION) -> pd.DataFrame:
+    """The exploratory family: one joint Wald test per (scorer, outcome), BH-corrected.
+
+    Returns the **Wald tests**, which are the family. Individual coefficients
+    come from `rq4_coefficients` and are explicitly descriptive: the ordering is
+    what stops a single coefficient becoming the headline after inspection
+    (section 6, P21).
+    """
+    rows = []
+    for scorer in scorers:
+        for outcome in RQ4_OUTCOMES:
+            fit = rq4_fit(panel, scorer, outcome, maxlags=maxlags, convention=convention)
+            wald = hac_wald(fit, RQ4_TONE_TERMS)
+            rows.append({
+                "scorer": scorer, "outcome": outcome,
+                "wald_chi2": wald["wald_chi2"], "df": wald["df"], "p": wald["p"],
+                "nobs": int(fit.nobs),
+                "n_lost_to_dispersion_floor": fit.ledger["n_lost_to_dispersion_floor"],
+                "hac_convention": fit.convention, "hac_maxlags": int(fit.maxlags),
+            })
+    out = pd.DataFrame(rows)
+    reject, adjusted = multipletests(out["p"], alpha=q, method="fdr_bh")[:2]
+    out["bh_q"] = adjusted
+    out["bh_reject"] = reject
+    out["family"] = "exploratory_rq4"
+    out["family_size"] = len(out)
+    out["alpha"] = q
+    out["test"] = "HAC Wald, joint null b1 = b2 = b3 = 0"
+    return out
+
+
+def rq4_coefficients(panel: pd.DataFrame, scorers: Sequence[str] = ("finbert", "lm"),
+                     maxlags: int = config.NW_MAXLAGS,
+                     convention: str = config.HAC_CONVENTION) -> pd.DataFrame:
+    """Individual RQ4 coefficients, **descriptive only**.
+
+    Carries no q-value and no reject flag by design. Section 6 makes the joint
+    Wald test the primary; these are read afterwards, with pointwise intervals,
+    and none is promoted to a headline. `b2` and `b3` are additionally not
+    independent dimensions -- bounded scores tie the mean and dispersion
+    mechanically, `d_t^2 <= [n_t/(n_t-1)] * (1 - S_t^2)`.
+    """
+    from scipy import stats as _stats
+
+    z = float(_stats.norm.ppf(0.975))
+    rows = []
+    for scorer in scorers:
+        for outcome in RQ4_OUTCOMES:
+            fit = rq4_fit(panel, scorer, outcome, maxlags=maxlags, convention=convention)
+            for term in fit.names:
+                coef, se = float(fit.params[term]), float(fit.bse[term])
+                rows.append({
+                    "scorer": scorer, "outcome": outcome, "term": term,
+                    "coef": coef, "nw_se": se,
+                    "lo95": coef - z * se, "hi95": coef + z * se,
+                    "nobs": int(fit.nobs),
+                    "standardized": term in RQ4_TONE_TERMS,
+                })
+    out = pd.DataFrame(rows)
+    out["interval_scope"] = "pointwise"
+    out["role"] = "descriptive; the joint Wald test in rq4_family is the primary"
+    return out

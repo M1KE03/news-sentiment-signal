@@ -267,6 +267,20 @@ def test_return_family_coefficients_are_standardized_with_detrended_controls():
     assert family["nobs"].iloc[-1] < family["nobs"].iloc[0]
 
 
+def _staged(tmp_path):
+    """A StagedRun for the runner's new signature (R14).
+
+    These two tests are about the advance record, which is deliberately NOT
+    staged: the protocol requires it published before any tone fit, so it
+    cannot wait for the run to complete. Staging still has to be supplied
+    because `run_analysis` writes its tables through it.
+    """
+    from src import publish
+
+    return publish.StagedRun({"tables": tmp_path / "t", "figures": tmp_path / "f"},
+                             manifest_dir=tmp_path / "t")
+
+
 def test_runner_persists_advance_record_before_first_tone_fit(tmp_path, monkeypatch):
     import json
     import run_all
@@ -284,7 +298,8 @@ def test_runner_persists_advance_record_before_first_tone_fit(tmp_path, monkeypa
 
     monkeypatch.setattr(inference, "lag_family", stop_at_first_fit)
     with pytest.raises(ReachedFirstToneFit):
-        run_all.run_analysis(_full_panel())
+        with _staged(tmp_path) as run:
+            run_all.run_analysis(_full_panel(), run)
 
 
 def test_failed_advance_publication_prevents_any_regression(tmp_path, monkeypatch):
@@ -298,6 +313,7 @@ def test_failed_advance_publication_prevents_any_regression(tmp_path, monkeypatc
         pytest.fail("a tone coefficient was estimated before the advance record was published")
     monkeypatch.setattr(inference, "primary", unexpected_fit)
     with pytest.raises(OSError, match="publication failure"):
-        run_all.run_analysis(_full_panel())
+        with _staged(tmp_path) as run:
+            run_all.run_analysis(_full_panel(), run)
     assert not (tmp_path / "advance_precision.json").exists()
     assert not list(tmp_path.glob("*.tmp"))

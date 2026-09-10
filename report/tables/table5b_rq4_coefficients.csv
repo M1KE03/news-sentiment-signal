@@ -1,0 +1,23 @@
+scorer,outcome,term,coef,nw_se,lo95,hi95,nobs,standardized,interval_scope,role
+finbert,rv_parkinson_lead1,const,3.496284863024655e-05,6.919524367534012e-06,2.140083007973259e-05,4.852486718076051e-05,2514,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,rv_parkinson_lead1,z_s,1.2250558132924834e-05,5.269038102767688e-06,1.9234332183309088e-06,2.2577683047518758e-05,2514,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,rv_parkinson_lead1,z_abs_s,-1.6428689989927227e-05,6.38794978937345e-06,-2.8948841512149414e-05,-3.9085384677050395e-06,2514,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,rv_parkinson_lead1,z_d,-6.439145328950244e-06,2.9832972726134566e-06,-1.228630053844919e-05,-5.919901194512973e-07,2514,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,rv_parkinson_lead1,rv_parkinson,0.379474609638421,0.11187466342277128,0.16020429854724877,0.5987449207295932,2514,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,log_volume_detrended_lead1,const,-0.00458203050297786,0.008561704746760651,-0.021362663452894358,0.01219860244693864,2453,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,log_volume_detrended_lead1,z_s,0.01697631088209625,0.014433548604311732,-0.011312924551463106,0.04526554631565561,2453,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,log_volume_detrended_lead1,z_abs_s,-0.01781689874892617,0.014841890705315105,-0.04690646999382356,0.011272672495971216,2453,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,log_volume_detrended_lead1,z_d,0.000572281118921001,0.005860232527217573,-0.010913563575455585,0.012058125813297587,2453,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,log_volume_detrended_lead1,log_volume_detrended,0.5833704656763693,0.02373999749223152,0.5368409255985244,0.6299000057542142,2453,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+finbert,log_volume_detrended_lead1,abs_ret,-0.27838711948276534,1.1256992607330827,-2.484717127942971,1.9279428889774404,2453,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,rv_parkinson_lead1,const,3.48010798270535e-05,6.918471844960933e-06,2.124112418287569e-05,4.8361035471231306e-05,2514,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,rv_parkinson_lead1,z_s,-1.3409308486217589e-06,3.643804851603842e-06,-8.482657124457605e-06,5.800795427214088e-06,2514,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,rv_parkinson_lead1,z_abs_s,-5.388663382124093e-06,4.94833772958917e-06,-1.5087227115459568e-05,4.309900351211382e-06,2514,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,rv_parkinson_lead1,z_d,-2.7025015998263763e-06,2.587807850655316e-06,-7.774511786020801e-06,2.3695085863680493e-06,2514,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,rv_parkinson_lead1,rv_parkinson,0.3823455195714581,0.11204138756425804,0.1627484351676185,0.6019426039752978,2514,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,log_volume_detrended_lead1,const,-0.005610800688799902,0.008591009325541328,-0.022448869557708646,0.011227268180108843,2453,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,log_volume_detrended_lead1,z_s,-0.011111276178752547,0.015717376940203764,-0.04191676891299228,0.019694216555487185,2453,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,log_volume_detrended_lead1,z_abs_s,-0.02426539958152453,0.01608367230070177,-0.05578881803004447,0.007258018866995411,2453,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,log_volume_detrended_lead1,z_d,0.019492225907396746,0.006905983997989978,0.005956745993526457,0.03302770582126704,2453,True,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,log_volume_detrended_lead1,log_volume_detrended,0.5822284714419835,0.02375349767610091,0.5356724714899699,0.6287844713939972,2453,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary
+lm,log_volume_detrended_lead1,abs_ret,-0.1200101692074928,1.1360759679875176,-2.3466781501645064,2.106657811749521,2453,False,pointwise,descriptive; the joint Wald test in rq4_family is the primary

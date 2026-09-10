@@ -1,0 +1,28 @@
+{
+  "_comment": "Machine-readable provenance for the 60-item pilot. src/validate.load_annotations reads THIS file, not provenance.md, which is the human-readable record. Fields already filled are facts about the draw and the instrument, verifiable from the repository. Fields set to null or 'TO BE COMPLETED' are human declarations: validate_annotation_provenance rejects this file until a person replaces every one of them, and it is meant to be rejected until then.",
+
+  "rubric_version": "v1",
+  "rubric_sha256": "b124df2d20b8991b59df2abc25a158aba23f31fa88d354dbeaeefc5e5ac64efa",
+  "instrument": "pilot_worksheet.csv",
+  "presentation_order_seed": 20260831,
+
+  "annotator_role": "TO BE COMPLETED - a role, never a name. e.g. 'project analyst'",
+
+  "label_source": null,
+  "_label_source": "Set to \"human\" only if a person produced every label. Any other value fails validation, which is the point.",
+
+  "blind_to_model_outputs": null,
+  "_blind_to_model_outputs": "true only if you did not consult any model output while labelling. Scores exist in interim/scores.parquet from 2026-09-10, so this asserts you did not open the cache - not merely that nothing was shown to you.",
+
+  "independent_of_analyst": null,
+  "_independent_of_analyst": "true if the annotator is not the person running the analysis. If the analyst labelled it, this is false, and the report states that limitation rather than hiding it.",
+
+  "scores_existed": null,
+  "_scores_existed": "true if model scores existed anywhere at labelling time. As of 2026-09-10 the full pass is complete, so this is true. Validation protocol section 5 permits labelling after scoring provided the cache is not consulted, and requires recording which case obtained.",
+
+  "sessions": [],
+  "_sessions": "One entry per sitting: {\"start\": \"2026-09-10T14:00:00Z\", \"end\": \"2026-09-10T14:35:00Z\"}. Timestamps need a time zone. Record when it actually happened; an empty list fails validation.",
+
+  "deviations": [],
+  "_deviations": "Every rubric question that arose and how it was resolved, as strings. An empty list means none arose - do not leave it empty to save effort, because section 6 reads it as evidence about rubric adequacy."
+}

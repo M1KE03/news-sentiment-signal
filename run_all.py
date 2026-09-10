@@ -24,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 import config
-from src import align, data, inference, plots, preflight, scoring
+from src import align, data, inference, plots, preflight, publish, scoring
 
 TABLES = config.REPORT / "tables"
 
@@ -115,6 +115,10 @@ def build_panel() -> pd.DataFrame:
         )
 
     config.PANEL_PARQUET.parent.mkdir(parents=True, exist_ok=True)
+    # A15: record what this panel was built from, so `--skip-panel` can tell
+    # whether it still matches the world rather than only that its columns do.
+    panel.attrs[publish.PANEL_PROVENANCE_KEY] = json.dumps(
+        publish.panel_provenance(), default=str)
     panel.to_parquet(config.PANEL_PARQUET, index=False)
     return panel
 
@@ -136,12 +140,13 @@ def write_advance_precision(record: dict) -> None:
             temporary.unlink()
 
 
-def run_analysis(panel: pd.DataFrame) -> dict:
+def run_analysis(panel: pd.DataFrame, run: publish.StagedRun) -> dict:
     TABLES.mkdir(parents=True, exist_ok=True)
     # Persist advance planning before any tone/outcome regression is called.
     precision = inference.primary_precision(panel)
     write_advance_precision(precision)
     sample, coverage = inference.analysis_sample(panel)
+    _, eligibility_ledger = inference.eligibility(panel)
     print(
         f"panel: {coverage['n_sessions']} sessions, "
         f"{coverage['n_zero_news_days']} zero-news days dropped (D9), "
@@ -163,11 +168,8 @@ def run_analysis(panel: pd.DataFrame) -> dict:
                 {"scorer": sc, "coef": res.params[key], "nw_se": res.bse[key],
                  "t": res.tvalues[key], "p": res.pvalues[key], "nobs": int(res.nobs)}
             )
-        pd.DataFrame(rows).to_csv(TABLES / "table2_contemporaneous.csv", index=False)
+        pd.DataFrame(rows).to_csv(run.path_for("tables", "table2_contemporaneous.csv"), index=False)
     else:
-        stale = TABLES / "table2_contemporaneous.csv"
-        if stale.exists():
-            stale.unlink()      # never leave a table from an earlier configuration
         print(
             "RQ2 suppressed: no selected source has usable intraday timestamps, "
             "so the same-day specification is not estimated and Table 2 is not "
@@ -178,7 +180,7 @@ def run_analysis(panel: pd.DataFrame) -> dict:
     families = {sc: inference.lag_family(panel, sc) for sc in config.SCORERS}
     table3 = inference.adjust_return_families(pd.concat(families.values(), ignore_index=True))
     families = {sc: table3.loc[table3["scorer"] == sc].copy() for sc in config.SCORERS}
-    table3.to_csv(TABLES / "table3_lag_family.csv", index=False)
+    table3.to_csv(run.path_for("tables", "table3_lag_family.csv"), index=False)
 
     # --- timing diagnostic (protocol section 9) --------------------------
     # A percentile rank, never a p-value: the old block-resampling "placebo"
@@ -194,25 +196,21 @@ def run_analysis(panel: pd.DataFrame) -> dict:
             f"({d['n_ties']} ties); {d['n_gaps']} gap(s), largest "
             f"{d['largest_gap_sessions']} session(s). Not a p-value."
         )
-    pd.DataFrame(timing.values()).to_csv(TABLES / "table_timing_diagnostic.csv", index=False)
+    pd.DataFrame(timing.values()).to_csv(run.path_for("tables", "table_timing_diagnostic.csv"), index=False)
 
     # --- Table 4: effect sizes in bps per 1 sigma (D15) ------------------
     table4 = pd.concat(
         [inference.effect_size_table(fam) for fam in families.values()],
         ignore_index=True,
     )
-    table4.to_csv(TABLES / "table4_effect_sizes.csv", index=False)
+    table4.to_csv(run.path_for("tables", "table4_effect_sizes.csv"), index=False)
 
     # --- comparing scorers (protocol section 7) --------------------------
     # (a) the paired difference, with the cross-equation HAC covariance. This
     # is the only quantity that supports a "one beats the other" statement
     # (section 11); two separate t-statistics do not.
     contrast = inference.paired_scorer_contrast(panel)
-    contrast.table().to_csv(TABLES / "table_paired_scorer_contrast.csv", index=False)
-    # never leave a table produced by a superseded method beside a current one
-    for stale in ("table_attenuation.csv",):
-        if (TABLES / stale).exists():
-            (TABLES / stale).unlink()
+    contrast.table().to_csv(run.path_for("tables", "table_paired_scorer_contrast.csv"), index=False)
     wald = contrast.wald()
     corr = contrast.diagnostics["corr_tone"]
     point, lo, hi = wald["bps"]
@@ -236,31 +234,30 @@ def run_analysis(panel: pd.DataFrame) -> dict:
         "p": incremental.pvalues.to_numpy(),
     }).assign(estimand=incremental.estimand, nobs=incremental.nobs,
               interval_scope="pointwise").to_csv(
-        TABLES / "table_incremental_contribution.csv", index=False)
+        run.path_for("tables", "table_incremental_contribution.csv"), index=False)
 
-    # --- Table 5: volatility and volume (RQ4) ----------------------------
-    rows = []
-    for sc in ("finbert", "lm"):
-        for outcome, fit in (
-            ("rv_parkinson_lead1", inference.volatility_spec(sample, sc)),
-            ("log_volume_detrended_lead1", inference.volume_spec(sample, sc)),
-        ):
-            for term in fit.params.index:
-                rows.append(
-                    {"scorer": sc, "outcome": outcome, "term": term,
-                     "coef": fit.params[term], "nw_se": fit.bse[term],
-                     "t": fit.tvalues[term], "p": fit.pvalues[term],
-                     "nobs": int(fit.nobs)}
-                )
-    table5 = pd.DataFrame(rows)
-    table5.to_csv(TABLES / "table5_vol_volume.csv", index=False)
+    # --- Table 5: RQ4 exploratory family ---------------------------------
+    # The FAMILY is the joint Wald tests; individual coefficients are
+    # descriptive and are written to a separate file so the two cannot be read
+    # as one table (protocol section 6, P21).
+    table5 = inference.rq4_family(panel)
+    table5.to_csv(run.path_for("tables", "table5_rq4_wald.csv"), index=False)
+    inference.rq4_coefficients(panel).to_csv(
+        run.path_for("tables", "table5b_rq4_coefficients.csv"), index=False)
+    for _, r in table5.iterrows():
+        print(f"RQ4 {r['scorer']}/{r['outcome']}: Wald chi2({int(r['df'])}) = "
+              f"{r['wald_chi2']:.2f}, p = {r['p']:.4f}, BH q = {r['bh_q']:.4f}, "
+              f"n = {int(r['nobs'])}")
 
     # --- figures ----------------------------------------------------------
-    plots.save(plots.figure2_lag_family(families, contemp), "figure2_lag_family")
-    plots.save(plots.figure3_dispersion_volume(sample), "figure3_dispersion_volume")
-    plots.save(plots.figure4_context(panel), "figure4_context")
-    plots.save(plots.figure_acf(sample), "figure_acf_sentiment")
-    plots.save(plots.figure_coverage(panel), "figure_coverage")
+    for name, figure in (
+        ("figure2_lag_family", plots.figure2_lag_family(families, contemp, timing)),
+        ("figure3_dispersion_volume", plots.figure3_dispersion_volume(sample)),
+        ("figure4_context", plots.figure4_context(panel)),
+        ("figure_acf_sentiment", plots.figure_acf(sample)),
+        ("figure_coverage", plots.figure_coverage(panel)),
+    ):
+        figure.savefig(run.path_for("figures", f"{name}.png"), bbox_inches="tight")
 
     summary = {
         "advance_precision": "advance_precision.json",
@@ -275,12 +272,18 @@ def run_analysis(panel: pd.DataFrame) -> dict:
             else "intraday close rule"
         ),
     }
-    (TABLES / "run_summary.json").write_text(json.dumps(summary, indent=2))
+    run.path_for("tables", "run_summary.json").write_text(
+        json.dumps(summary, indent=2, default=str))
+    run.extra["eligibility"] = eligibility_ledger
+    run.extra["coverage"] = coverage
     return summary
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--allow-stale-panel", action="store_true",
+                    help="reuse a panel whose provenance does not match current "
+                         "inputs or settings; prints what differs")
     ap.add_argument("--skip-preflight", action="store_true",
                     help="run without checking prerequisites (not recommended)")
     ap.add_argument("--skip-panel", action="store_true",
@@ -305,11 +308,32 @@ def main() -> None:
         # A reused panel is an artifact of whatever code wrote it, which may
         # predate the current field contract (B16/P22 renames).
         align.assert_panel_schema(panel)
+        # ... and whose columns can match while its semantics do not (A15).
+        recorded = panel.attrs.get(publish.PANEL_PROVENANCE_KEY)
+        problems = publish.check_panel_provenance(
+            json.loads(recorded) if recorded else None)
+        if problems and not args.allow_stale_panel:
+            raise SystemExit(
+                "the reused panel does not match the current inputs or settings:\n  "
+                + "\n  ".join(problems)
+                + "\n\nRebuild it by dropping --skip-panel, or pass "
+                  "--allow-stale-panel to proceed deliberately. Results from a "
+                  "mismatched panel would be labelled with settings that did not "
+                  "produce them."
+            )
+        if problems:
+            print("WARNING: reusing a panel that does not match current inputs:")
+            for problem in problems:
+                print(f"  {problem}")
     else:
         panel = build_panel()
         print(f"wrote {config.PANEL_PARQUET}  ({len(panel):,} rows)")
 
-    run_analysis(panel)
+    destinations = {"tables": TABLES, "figures": config.FIGURES}
+    with publish.StagedRun(destinations, manifest_dir=TABLES) as run:
+        run_analysis(panel, run)
+    print(f"\npublished {len(run.published)} output(s) and "
+          f"{publish.MANIFEST_NAME}; nothing was written until the run completed.")
     print("\nAct 1 (Table 1, Figure 1) is produced by notebooks/02_validation.ipynb "
           "-- it is an independent branch and needs the PhraseBank, not the panel.")
 

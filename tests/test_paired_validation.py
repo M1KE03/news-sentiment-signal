@@ -133,3 +133,118 @@ def test_agreement_retains_primary_and_counts_unusable():
     assert result["n_unusable_either"] == 1 and result["raw_agreement"] == 0.5
     assert result["cohen_kappa"] == pytest.approx(1 / 3)
     pd.testing.assert_frame_equal(a, before)
+
+
+# ------------------------- R13a readiness: the pilot handoff must actually work
+
+
+def pilot_paths():
+    import config as _c
+    return Path(_c.ANNOTATION_DIR)
+
+
+def test_the_pilot_provenance_template_exists_and_is_rejected_until_filled():
+    """The refusal is the feature. `validate_annotation_provenance` never
+    manufactures a human declaration, so the shipped template must fail."""
+    import json as _json
+
+    path = pilot_paths() / "provenance_pilot.json"
+    assert path.exists(), "the ingestion code reads JSON; a template must be provided"
+    record = _json.loads(path.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError):
+        validate.validate_annotation_provenance(record)
+
+
+def test_the_template_carries_the_verifiable_facts_already():
+    """Only human declarations are left blank; facts about the draw are filled."""
+    import hashlib
+    import json as _json
+    import config as _c
+
+    record = _json.loads((pilot_paths() / "provenance_pilot.json").read_text(encoding="utf-8"))
+    assert record["rubric_version"] == "v1"
+    assert record["presentation_order_seed"] == 20260831
+    assert record["instrument"] == "pilot_worksheet.csv"
+    actual = hashlib.sha256(Path("docs/validation-protocol.md").read_bytes()).hexdigest()
+    assert record["rubric_sha256"] == actual, (
+        "the recorded rubric hash no longer matches the protocol file; a "
+        "mid-annotation rubric change is a protocol change and must be logged"
+    )
+
+
+def test_the_filled_template_passes_and_ingests_the_real_pilot_worksheet():
+    """End-to-end dry run on the exact file the annotator will hand back.
+
+    Synthetic labels, discarded. This exists so a schema surprise surfaces now
+    rather than after someone has spent half an hour labelling.
+    """
+    import json as _json
+    import shutil
+    import tempfile
+
+    import config as _c
+
+    folder = pilot_paths()
+    tmp = Path(tempfile.mkdtemp())
+    for f in folder.glob("*.csv"):
+        shutil.copy(f, tmp / f.name)
+
+    sheet = pd.read_csv(folder / "pilot_worksheet.csv", dtype=str,
+                        keep_default_na=False, encoding="utf-8-sig")
+    cycle = ["positive", "negative", "neutral"]
+    sheet["label"] = [cycle[i % 3] for i in range(len(sheet))]
+    sheet["mixed"] = "0"
+    sheet["hard"] = "0"
+    sheet["notes"] = ""
+    labels = tmp / "labels_pilot.csv"
+    sheet.to_csv(labels, index=False, encoding="utf-8-sig")   # Excel's default on Windows
+
+    record = _json.loads((folder / "provenance_pilot.json").read_text(encoding="utf-8"))
+    record.update(annotator_role="project analyst", label_source="human",
+                  blind_to_model_outputs=True, independent_of_analyst=False,
+                  scores_existed=True,
+                  sessions=[{"start": "2026-09-10T14:00:00Z", "end": "2026-09-10T14:35:00Z"}])
+    prov = tmp / "provenance_pilot.json"
+    prov.write_text(_json.dumps(record), encoding="utf-8")
+
+    ids = pd.read_csv(folder / "pilot_items.csv", dtype=str)["headline_id"].tolist()
+    out = validate.load_annotations(labels, prov, part="calibration",
+                                    annotation_dir=tmp, expected_ids=ids)
+    assert len(out) == 60
+    assert set(out["label"]) <= {"positive", "negative", "neutral", "unusable"}
+    assert out.attrs["provenance"]["scores_existed"] is True
+
+
+def test_a_worksheet_with_a_blank_label_is_refused():
+    """A missed row must stop ingestion, not be silently dropped."""
+    import json as _json
+    import shutil
+    import tempfile
+
+    folder = pilot_paths()
+    tmp = Path(tempfile.mkdtemp())
+    for f in folder.glob("*.csv"):
+        shutil.copy(f, tmp / f.name)
+
+    sheet = pd.read_csv(folder / "pilot_worksheet.csv", dtype=str,
+                        keep_default_na=False, encoding="utf-8-sig")
+    sheet["label"] = "neutral"
+    sheet.loc[7, "label"] = ""          # one row missed
+    sheet["mixed"] = "0"
+    sheet["hard"] = "0"
+    sheet["notes"] = ""
+    labels = tmp / "labels_pilot.csv"
+    sheet.to_csv(labels, index=False, encoding="utf-8-sig")
+
+    record = _json.loads((folder / "provenance_pilot.json").read_text(encoding="utf-8"))
+    record.update(annotator_role="project analyst", label_source="human",
+                  blind_to_model_outputs=True, independent_of_analyst=False,
+                  scores_existed=True,
+                  sessions=[{"start": "2026-09-10T14:00:00Z", "end": "2026-09-10T14:35:00Z"}])
+    prov = tmp / "provenance_pilot.json"
+    prov.write_text(_json.dumps(record), encoding="utf-8")
+
+    ids = pd.read_csv(folder / "pilot_items.csv", dtype=str)["headline_id"].tolist()
+    with pytest.raises(ValueError, match="blanks are incomplete"):
+        validate.load_annotations(labels, prov, part="calibration",
+                                  annotation_dir=tmp, expected_ids=ids)

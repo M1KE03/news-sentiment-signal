@@ -13,9 +13,19 @@ Instructions and source-file hashes: [PILOT_README.md](PILOT_README.md).
 | Rubric version | `v1`, `docs/validation-protocol.md` sha256 `b124df2d20b8991b...` |
 | Annotator(s) | **TO BE COMPLETED** - role not name; state whether independent of the analyst |
 | Dates | **TO BE COMPLETED** - start and end of each session |
-| Blindness | Export contains `headline_id` and `text` only. Scores in cache at draw time: **no**. Annotator confirmation **TO BE COMPLETED** |
+| Blindness | Export contains `headline_id` and `text` only. Scores in cache at draw time (2026-09-09): **no**. Scores in cache at labelling time: **yes, from 2026-09-10** — see below. Annotator confirmation **TO BE COMPLETED** |
 | Instrument | `to_label_primary.csv`, presentation-order seed `20260831` |
 | Deviations | **TO BE COMPLETED** - every rubric question that arose and how it was resolved |
+
+### Scores existed before labelling — recorded, as the protocol requires
+
+The full scoring pass completed **2026-09-10**, before any label was written. `interim/scores.parquet` therefore holds LM, VADER and FinBERT scores for all 869,183 headlines, including every drawn item.
+
+Validation protocol §5 permits this and states the obligation it creates: *"Annotation happens before any scorer is run on the evaluation part — or, if scores already exist in the cache, the annotator must not have access to them. Record which was the case."* This is the second case.
+
+What has not changed: the worksheet exposes `headline_id` and `text` only, the presentation order still comes from seed `20260831`, and no model output was written into any annotation file. What the annotator's confirmation must now cover is stronger than "no scores were shown" — it must state that the cache was not consulted during labelling.
+
+The order of events is also a fact about this project rather than a choice: the pass was authorized and run before the annotator was available. It is recorded here so a reader does not have to infer it from file timestamps.
 
 ## The draw
 

@@ -547,3 +547,49 @@ def test_extra_cached_scores_are_harmless():
     daily = align.aggregate_daily(pd.concat([scores, extra], ignore_index=True),
                                   heads, CALENDAR, date_only=True)
     assert daily.set_index("date")["n_headlines"].loc[pd.Timestamp("2024-07-03")] == 3
+
+
+# --------------------------------- R12 follow-up: config.AGG is no longer inert
+
+
+def test_the_aggregation_rule_is_read_rather_than_hardcoded():
+    """The defect this closes: `config.AGG` existed but `aggregate_daily`
+    hardcoded `.mean()`, so editing the constant changed nothing while appearing
+    to change the specification (audit A15)."""
+    headlines, scores = _synthetic_headlines(n_per_day=9)
+    mean = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False, agg="mean")
+    median = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False, agg="median")
+    col = f"s_{config.SCORERS[0]}"
+    assert not mean[col].equals(median[col]), "the two rules must give different S_t"
+
+
+def test_the_default_aggregation_is_the_frozen_primary():
+    assert config.AGG == "mean"          # D8
+    headlines, scores = _synthetic_headlines(n_per_day=9)
+    default = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False)
+    explicit = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False, agg="mean")
+    pd.testing.assert_frame_equal(default, explicit)
+
+
+def test_the_panel_records_which_aggregation_produced_it():
+    """A median run must not be mistakable for the primary one."""
+    headlines, scores = _synthetic_headlines(n_per_day=9)
+    for agg in config.AGG_CHOICES:
+        daily = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False, agg=agg)
+        assert daily.attrs["coverage"]["aggregation"] == agg
+
+
+def test_dispersion_stays_a_standard_deviation_under_either_rule():
+    """d_t is defined as the within-day SD (protocol section 6). Swapping in a MAD
+    would change the estimand rather than test the aggregation rule."""
+    headlines, scores = _synthetic_headlines(n_per_day=9)
+    col = f"d_{config.SCORERS[0]}"
+    mean = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False, agg="mean")
+    median = align.aggregate_daily(scores, headlines, CALENDAR, date_only=False, agg="median")
+    pd.testing.assert_series_equal(mean[col], median[col])
+
+
+def test_an_unknown_aggregation_rule_is_refused():
+    headlines, scores = _synthetic_headlines(n_per_day=3)
+    with pytest.raises(ValueError, match="agg must be one of"):
+        align.aggregate_daily(scores, headlines, CALENDAR, date_only=False, agg="mode")

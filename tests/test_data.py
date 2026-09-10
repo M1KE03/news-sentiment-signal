@@ -523,3 +523,35 @@ def test_dedup_refuses_a_frame_without_source_row_id():
     df = _frame(["Apple beats on earnings"], ["2015-01-05"]).drop(columns=["source_row_id"])
     with pytest.raises(ValueError, match="source_row_id"):
         sdata.dedup(df)
+
+
+# ------------------------------------- R12 follow-up: the source filter boundary
+
+
+def test_the_source_filter_matches_exact_hosts_and_true_subdomains():
+    assert sdata._host_matches("benzinga.com", ("benzinga.com",))
+    assert sdata._host_matches("www2.benzinga.com", ("benzinga.com",))
+    assert sdata._host_matches("BENZINGA.COM", ("benzinga.com",))
+    assert sdata._host_matches("benzinga.com.", ("benzinga.com",))   # trailing dot
+
+
+def test_the_source_filter_rejects_substring_impostors():
+    """The defect this closes: `any(d in h ...)` admitted both of these.
+
+    The filter is the corpus boundary, not hygiene -- `All_external.csv`
+    concatenates five-plus corpora including Russian-language `lenta.ru`, so a
+    leak is a different corpus rather than a little extra noise.
+    """
+    for host in ("notbenzinga.com", "benzinga.com.evil.example",
+                 "xbenzinga.com", "fakebenzinga.community"):
+        assert not sdata._host_matches(host, ("benzinga.com",)), host
+
+
+def test_the_source_filter_still_admits_every_pooled_candidate():
+    for host in ("benzinga.com", "zacks.com", "seekingalpha.com"):
+        assert sdata._host_matches(host, config.NEWS_SOURCE_DOMAINS_POOLED)
+    assert not sdata._host_matches("lenta.ru", config.NEWS_SOURCE_DOMAINS_POOLED)
+
+
+def test_an_empty_or_missing_host_is_not_admitted():
+    assert not sdata._host_matches("", ("benzinga.com",))

@@ -1,0 +1,5 @@
+scorer,outcome,wald_chi2,df,p,nobs,n_lost_to_dispersion_floor,hac_convention,hac_maxlags,bh_q,bh_reject,family,family_size,alpha,test
+finbert,rv_parkinson_lead1,7.78186693742817,3,0.050741677441438954,2514,1,session_indexed,5,0.10148335488287791,False,exploratory_rq4,4,0.05,"HAC Wald, joint null b1 = b2 = b3 = 0"
+finbert,log_volume_detrended_lead1,1.4694420791417193,3,0.6893408256560691,2453,1,session_indexed,5,0.6893408256560691,False,exploratory_rq4,4,0.05,"HAC Wald, joint null b1 = b2 = b3 = 0"
+lm,rv_parkinson_lead1,3.64444849641727,3,0.3025051824458061,2514,1,session_indexed,5,0.4033402432610748,False,exploratory_rq4,4,0.05,"HAC Wald, joint null b1 = b2 = b3 = 0"
+lm,log_volume_detrended_lead1,9.656268094229507,3,0.021725744563424767,2453,1,session_indexed,5,0.08690297825369907,False,exploratory_rq4,4,0.05,"HAC Wald, joint null b1 = b2 = b3 = 0"
