@@ -10,7 +10,7 @@ Related: [implementation plan](implementation-plan.md) (B01–B28) · [decision 
 
 ## 1. Where the project stands, in one paragraph
 
-**Inference update, 2026-09-10:** R07d and R08a are implemented and integrated: advance precision on eligible rows is atomically recorded before any tone fit; pointwise effects report both evidence dimensions and boundaries; the exact primary + 14 secondary return family uses BH/BY. R07b/R07c code appeared concurrently and supplies eligibility, standardized regressions and HAC covariance; its own M7 decision record is tracked separately. See the [reporting contract](inference-reporting-contract.md). No empirical coefficient was estimated. **333 tests passed, 0 skipped.**
+**Inference update, 2026-09-10:** the Act 2 track is complete — R07a–R07d and R08a–R08c. Panel field names match their formulas; the frozen primary specification fits on an auditable eligibility ledger with tone standardized at fit time; `L = 5` counts exchange sessions (M7 decided, both conventions reported); advance precision is atomically recorded before any tone fit; effects report both evidence dimensions with boundary disclosure; one unadjusted primary plus the closed 14-test secondary family under BH with BY alongside; the paired scorer contrast carries the cross-equation covariance; and the timing diagnostic is an exhaustive circular shift reported as a percentile. The block-resampling placebo, `attenuation_comparison` and `horse_race` were **deleted**. See the [reporting contract](inference-reporting-contract.md) and the [spacing decision](hac-spacing-decision.md). **A08 is closed. No empirical coefficient was estimated. 388 tests pass, 0 skipped.**
 
 **Dependency update, 2026-09-10:** the LM dictionary is now acquired and verified (1993–2025, March 2026 release; [provenance](lm-dictionary-provenance.md)). The user volunteered to label the 60-item pilot; [worksheet](../data/annotation/pilot_worksheet.csv) and [instructions](../data/annotation/PILOT_README.md) are ready. Labels are still pending. R06b implementation can proceed on synthetic fixtures without labels; R13a empirical evaluation cannot. R11 no longer waits for the dictionary, but still follows its implementation/readiness prerequisites. The frozen sample was not redrawn.
 
@@ -133,7 +133,7 @@ A defect the tests caught: the headline schema's string dtypes depended on `chun
 
 ## 3a. The 2026-09-09 audit repair session
 
-A full [project audit](project-audit-2026-09-09.md) found fifteen issues (A01–A15). The [repair sequence](audit-implementation-plan-2026-09-09.md) addresses them in thirty increments. Thirteen are done. What follows is what changed and what it cost, because several of these were found by measurement rather than by reading code.
+A full [project audit](project-audit-2026-09-09.md) found fifteen issues (A01–A15). The [repair sequence](audit-implementation-plan-2026-09-09.md) addresses them in twenty-nine increments. Twenty-one are done. What follows is what changed and what it cost, because several of these were found by measurement rather than by reading code.
 
 ### R01a–R01d — scoring cache and checkpoints (A01, A02)
 
@@ -209,6 +209,20 @@ Six invented sentences establish nothing in either direction — that is what Ac
 
 `README.md`, `report/report.md`, `src/plots.py`, notebooks 01–03, `implementation-plan.md` and the decision log were brought to what the code actually does. Removed: the "domain transformer reads financial sentences far better" premise; the Findings section's placeholder bullets that pre-wrote the expected answer's shape; a block literally headed **"Expected outcomes, declared before any result was seen"**; the "no same-day association means something upstream is broken" sanity check (P23); six figure titles that asserted conclusions; the `--all` flag that does not exist; and the D6 intraday rule that is descoped.
 
+### R09 — documentation reconciled against the code (A14)
+
+Every documentation surface was read against what the code now does, rather than against what it did when the text was written. What R09 found is worth recording, because none of it was failing loudly:
+
+- **The decision log's standing status paragraph had decayed again.** It still quoted the pre-R03d corpus count (869,205, not 869,183), still said "no annotation sample has been drawn" after R06a had drawn 800 items, and still named Smart App Control and the missing LM dictionary as live blockers after both were resolved. This is the second time this one paragraph has gone stale — R05 corrected it for the same reason — so it is now dated on every edit and carries a note explaining why.
+- **The README still listed Act 2's *three* conclusions**, which M2 withdrew for overlapping (an interval of `[1, 3]` bps satisfied two of them at once). It also gave McNemar as the primary accuracy comparison (M4 replaced it with the group bootstrap), described block permutation as "a null that assumes nothing about the error process" — protocol §11 forbids describing any procedure here as assumption-free, and the block path was deleted at R08c — and called the 5 bps SESOI a "transaction-cost benchmark" delivering "economic significance", which P19 forbids.
+- **The report contradicted itself two pages apart.** §5 correctly said the yardstick "is a measure of *smallness*, not a profitability threshold"; §9 called it a "transaction-cost benchmark". Its §2 inference bullet was two generations stale (per-scorer BH; "circular block permutation, block 21, 1,000 draws, seed 20260830" — a procedure and three settings that no longer exist), and §6.3 still carried the correlation-above-0.9 decision rule R08b removed.
+- **Notebook 04 still instructed the predetermined finding.** It called RQ4 "the act most likely to yield a positive result" and told the reader to "report the d_t coefficient prominently: disagreement predicting volume is the project's most plausible positive finding" — both the promotion the joint-null ordering exists to prevent, and the "disagreement" reading P21 forbids.
+- **The repair table disagreed with its own checkpoints.** Nine increments completed in earlier sessions carried no tick, and every prose count said "thirty increments" when the table has always listed **29**.
+
+Four rows of the carried-defects table were already fixed and still listed as open. Listing a closed defect as open is the same failure as the reverse: it costs a later session the time to rediscover it. They are struck through with what closed them rather than deleted.
+
+**Two code defects survive R09 and are not documentation problems.** The source filter matches by substring, so `notbenzinga.com` would pass the mandatory domain filter; and `config.AGG` is an inert flag that `aggregate_daily` never reads. Both are re-verified open and left for the audit follow-up, because R09 changes prose, not behaviour.
+
 ## 4. Checklist against the implementation plan
 
 Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigger)
@@ -273,7 +287,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 
 ### The audit repair sequence (the live plan)
 
-Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2026-09-09.md), repaired in the thirty increments of the [repair plan](audit-implementation-plan-2026-09-09.md). **Fourteen complete, sixteen remaining.**
+Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2026-09-09.md), repaired in the twenty-nine increments of the [repair plan](audit-implementation-plan-2026-09-09.md). **Twenty-one complete, eight remaining** (R09 in progress; R10–R15 outstanding).
 
 | Increment | Finding | State |
 |---|---|---|
@@ -297,20 +311,24 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R13a, R13b | — | ⬜ Empirical validation and primary analysis |
 | R14, R15 | — | ⬜ Reproduction and presentation |
 
-Six findings are closed (A01–A06), A15 is partly closed, and eight remain open (A07–A14 less A12).
+**Twelve findings are closed (A01–A12)**, A14 is closed by this R09 pass, A15 is partly closed, and A13 remains open (preflight and dependency inventory — R10).
 
 ### Carried defects not yet fixed
 
+Verified line by line at R09 (2026-09-10). Four rows had already been fixed in earlier increments and were still listed as open — which is the same failure mode as listing an open defect as closed, and is recorded rather than quietly deleted.
+
 | Item | Where | Increment |
 |---|---|---|
-| Figure titles assert conclusions before results exist (P24) | `src/plots.py` — "Same-day association, next-day nothing"; "heavier trading"; "lexicons over-predict neutral" | B27 / R09 |
-| README and report assert that a transformer reads financial sentences better than a word counter, as a premise | `README.md:5`, `report/report.md:12` | B27 / R09 |
-| README states findings as filled-in placeholders | `README.md` | B27 / R09 |
-| Report skeleton still uses original-plan language in places | `report/report.md` | B27 / R09 |
+| ~~Figure titles assert conclusions before results exist (P24)~~ | **Already closed**; every title in `src/plots.py` names its axes, and the three quoted strings no longer exist | — |
+| ~~README and report assert that a transformer reads financial sentences better than a word counter~~ | **Already closed**; both carry a dated correction note instead | — |
+| ~~README states findings as filled-in placeholders~~ | **Already closed**; the Findings section says there are none | — |
+| ~~Report skeleton still uses original-plan language in places~~ | **Closed at R09** — the stale inference bullet (per-scorer BH, block permutation with block/draws/seed), the §6.3 correlation decision rule, the "transaction-cost benchmark" framing in §9 that contradicted §5 two pages earlier, and P22 naming in §6 | R09 |
+| Findings and method notes in the README described withdrawn procedures | `README.md` — the three overlapping Act 2 conclusions (M2 withdrew them), McNemar as the primary accuracy test (M4), block permutation as "assumes nothing" (§11 forbids "assumption-free"), the 5 bps SESOI as a "transaction-cost benchmark" (P19) | **Closed at R09** |
+| Notebook 04 instructed a predetermined finding | `notebooks/04_volume_vol.ipynb` — "the act most likely to yield a positive result" and "report the d_t coefficient prominently" | **Closed at R09** |
 | ~~Placebo resamples blocks with replacement~~ | **Closed at R08c** — function deleted; `timing_diagnostic` replaces it | — |
 | RQ4 exploratory specs still use old-plan conventions; every primary, return-family, paired and timing path now uses `primary`/`eligibility` | `volatility_spec`, `volume_spec` (and the `predictive` helper they lean on) | optional RQ4 increment |
-| Source filter matches by substring, so `notbenzinga.com` would pass | `src/data.py:94` | audit follow-up |
-| `config.AGG` is never read by `aggregate_daily` — an inert flag | `config.py:138` | audit follow-up |
+| Source filter matches by **substring**, so a host like `notbenzinga.com` would pass | `src/data.py:112` — `any(d in h for d in domains)`; re-verified open at R09 | audit follow-up |
+| `config.AGG` is never read — `aggregate_daily` hardcodes `.mean()`, so changing the flag changes nothing | `config.py:161`, `src/align.py:467`; re-verified open at R09 | audit follow-up |
 | `requirements.txt` versions are declared, not `pip freeze`d | | B28 / R10 |
 
 **One carried defect was closed by measurement rather than by code.** A test
@@ -450,11 +468,14 @@ src/annotate.py   the blind Act 1 sample: strata, article groups, split, exports
 src/audit.py      per-source profiling; withholds rates a cluster sample cannot support
 src/align.py      both mappers, daily aggregation, panel, all lags and leads
 src/scoring.py    three scorers behind one protocol, hash-keyed cache
-src/validate.py   Act 1 metrics (not yet reworked to the B01 protocol)
-src/inference.py  HAC regressions, BH, placebo, effect sizes
-src/plots.py      one function per figure (titles still assert conclusions — B27)
-tests/            246 passing, 0 skipped: alignment · audit · data · inference ·
-                  scoring · checkpoints · acquisition · market · validation
+src/validate.py   Act 1: label ingestion, calibration-only thresholds, group bootstrap
+src/inference.py  eligibility ledger, frozen primary spec, session-indexed HAC,
+                  14-test secondary family (BH/BY), paired contrast, timing shift
+src/plots.py      one function per figure; titles name their axes, not conclusions
+tests/            388 passing, 0 skipped: alignment · audit · data · market ·
+                  panel_fields · primary · hac_spacing · scorer_contrast ·
+                  timing_diagnostic · inference · inference_reporting · scoring ·
+                  checkpoints · acquisition · validation · paired_validation
 run_all.py        panel -> tables and figures, with the standing fallback guard
 rescore.py        the one-off scoring pass (--time-only times it first)
 ```

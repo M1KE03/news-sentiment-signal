@@ -4,7 +4,28 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-10
 
-### Latest: R08b and R08c — A08 closed
+### Latest: R09 — documentation reconciled against the code
+
+**R09 complete. 22 of 29 increments done. A14 closed.** 388 tests pass, 0 skip. Prose only; no behaviour changed.
+
+Every documentation surface was read against what the code does now, rather than against what it did when the text was written. Nothing here was failing loudly, which is the point — stale documentation is silent, and the cost lands on whoever reads it next and believes it.
+
+**Withdrawn procedures still described as current.** The README listed Act 2's *three* conclusions, which M2 withdrew for overlapping — an interval of `[1, 3]` bps satisfied two of them at once and no rule chose between them. It gave McNemar as the primary accuracy comparison, which M4 replaced with the group bootstrap. It described block permutation as "a null that assumes nothing about the error process", which is doubly wrong: §11 forbids calling any procedure here assumption-free, and the block path was deleted at R08c. It called the 5 bps SESOI a "transaction-cost benchmark" delivering "economic significance", which P19 forbids.
+
+**The report contradicted itself two pages apart.** §5 correctly called the yardstick "a measure of *smallness*, not a profitability threshold"; §9 called it a transaction-cost benchmark. Its §2 inference bullet was two generations stale — per-scorer BH, and "circular block permutation, block 21, 1,000 draws, seed 20260830", a procedure and three settings that no longer exist. §6.3 still carried the correlation-above-0.9 rule R08b removed. Its subtitle asked whether FinBERT's classification skill "survives as a market signal", presupposing what Act 1 exists to measure.
+
+**Notebook 04 still instructed the predetermined finding** the audit set out to remove: RQ4 as "the act most likely to yield a positive result", and "report the d_t coefficient prominently: disagreement predicting volume is the project's most plausible positive finding". Both the promotion the joint-null ordering exists to prevent, and the "disagreement" reading P21 forbids.
+
+**The decision log's standing status paragraph had decayed for the second time.** It quoted the pre-R03d corpus count (869,205, not 869,183), said "no annotation sample has been drawn" after R06a drew 800 items, and named Smart App Control and the missing LM dictionary as live blockers after both were resolved. R05 had corrected this same paragraph for the same reason. A standing status statement decays silently because nothing fails when it is wrong; it is now dated on every edit, with a note saying why.
+
+**This plan disagreed with itself.** Nine increments completed in earlier sessions carried no tick, and every prose count said "thirty increments" for a table that has always listed **29**.
+
+**Four carried defects were already fixed and still listed as open.** That is the same failure as the reverse — it costs a later session the time to rediscover them — so they are struck through with what closed them rather than deleted.
+
+**Two code defects survive and were deliberately not touched**, because R09 changes prose and not behaviour: the source filter matches by substring, so a host like `notbenzinga.com` would pass the mandatory domain filter (`src/data.py:112`); and `config.AGG` is inert, since `aggregate_daily` hardcodes `.mean()`. Both are re-verified open in the handover's carried-defects table.
+
+### Previous: R08b and R08c — A08 closed
+
 
 **R08b and R08c complete. 21 of 29 increments done.** 388 tests pass, 0 skip. No empirical result was computed.
 
@@ -33,7 +54,7 @@ R08a replaces per-scorer BH with one unadjusted primary and the exact 14-test se
 
 ### R07b and R07c — the primary specification, and what `L = 5` counts
 
-**R01a–R01d, R02, R03a–R03d, R04a, R04b, R05, R06a, R07a, R07b and R07c complete — 16 of 30.**
+**R01a–R01d, R02, R03a–R03d, R04a, R04b, R05, R06a, R07a, R07b and R07c complete — 16 of 29.**
 
 **R07b — the frozen primary specification.** A07's mismatch was not a naming problem. `predictive` fitted **raw** `log_volume` where the protocol specifies the trailing-63-session-**detrended** series, did not standardize tone at fit time, and the basis-point conversion then multiplied by an `sd(S)` from a different sample — rescaling a coefficient the fit had already scaled. `inference.primary` implements the frozen model instead; `predictive` stays in place for the secondary and exploratory paths R08 replaces, and is now documented as not being the primary.
 
@@ -51,7 +72,7 @@ Measured on synthetic gapped data (`hac_spacing_study.py`, true tone coefficient
 
 ### Previous checkpoint: R07a — panel field names now match their formulas
 
-**R07a complete (latest). R01a–R01d, R02, R03a–R03d, R04a, R04b, R05, R06a and R07a complete — 14 of 30.** 258 tests pass, 0 skip.
+**R07a complete (latest). R01a–R01d, R02, R03a–R03d, R04a, R04b, R05, R06a and R07a complete — 14 of 29.** 258 tests pass, 0 skip.
 
 Two panel columns claimed more than their formulas delivered (P22, A07). `log_turnover` is `log(share volume)` — no share-count denominator exists anywhere in this pipeline, so it was never a turnover ratio. `parkinson` was described as volatility when it is a high-low **range** estimator of variance, blind to the intraday path and to the overnight gap.
 
@@ -73,7 +94,7 @@ The user requested resolution of the “Blocked by” items and volunteered to l
 
 | Increment | Current dependency |
 |---|---|
-| R06b — label ingestion, paired metrics | **Implementation ready:** use synthetic fixtures. Actual calibration/evaluation waits for human labels |
+| ✅ R06b — label ingestion, paired metrics | **Implementation ready:** use synthetic fixtures. Actual calibration/evaluation waits for human labels |
 | R13a — empirical validation | Dictionary resolved; independent calibration/evaluation labels and R06b implementation still required. User is starting with the 60-item pilot |
 | R11 — pilot/bounded scoring | Dictionary and model-environment blockers resolved; readiness and preceding implementation checks remain. No full scoring authorized or run in this update |
 
@@ -81,7 +102,7 @@ This changes dependency status, not the count of completed research increments.
 
 ### Previous checkpoint: 2026-09-09
 
-**R06a complete. R01a–R01d, R02, R03a–R03d, R04a, R04b, R05 and R06a complete — 13 of 30 at that point.**
+**R06a complete. R01a–R01d, R02, R03a–R03d, R04a, R04b, R05 and R06a complete — 13 of 29 at that point.**
 
 ### R06a — the blind annotation sample is drawn
 
@@ -464,17 +485,17 @@ At the end of R01a, default-path validation, input-content identity and subset i
 
 | Increment | Work and likely files | Acceptance check | Dependencies / audit findings |
 |---|---|---|---|
-| R01a — cache identity | `src/scoring.py`, `tests/test_scoring.py`: canonical JSON-compatible fingerprints; actual constructor revision; missing-metadata refusal | Same identity survives save/load; changed identity and legacy unknown identity fail; no model download required | Reopen B13; A01 |
-| R01b — cache validation scope | Validate completed columns on the default path; handle input content identity and subset invalidation | Complete-cache reuse checks provenance; changing A in an A/B cache cannot bless B's old values | R01a; A01 |
-| R01c — checkpoint contract | Write exact proposal for versioned data/provenance commit and recovery within the existing cache | Defined interruption states, migration behavior and no-GPU read-validation path | B13/B14 contract checkpoint; A02/A15 |
-| R01d — durable recovery | Implement approved checkpoint contract; inject failures at file-write/commit boundaries | Every interrupted state recovers the last consistent checkpoint or refuses explicitly; resumed scores equal uninterrupted scores | R01c; A02 |
-| R02 — assembly contract | `data/raw/download.py` plus data tests: raw/clean destination separation, pinned revision, stream digest/length, atomic final publication | Small mocked download cannot overwrite the clean corpus as raw; wrong digest refuses publication; offline deterministic test | B04/B26; A05 |
+| ✅ R01a — cache identity | `src/scoring.py`, `tests/test_scoring.py`: canonical JSON-compatible fingerprints; actual constructor revision; missing-metadata refusal | Same identity survives save/load; changed identity and legacy unknown identity fail; no model download required | Reopen B13; A01 |
+| ✅ R01b — cache validation scope | Validate completed columns on the default path; handle input content identity and subset invalidation | Complete-cache reuse checks provenance; changing A in an A/B cache cannot bless B's old values | R01a; A01 |
+| ✅ R01c — checkpoint contract | Write exact proposal for versioned data/provenance commit and recovery within the existing cache | Defined interruption states, migration behavior and no-GPU read-validation path | B13/B14 contract checkpoint; A02/A15 |
+| ✅ R01d — durable recovery | Implement approved checkpoint contract; inject failures at file-write/commit boundaries | Every interrupted state recovers the last consistent checkpoint or refuses explicitly; resumed scores equal uninterrupted scores | R01c; A02 |
+| ✅ R02 — assembly contract | `data/raw/download.py` plus data tests: raw/clean destination separation, pinned revision, stream digest/length, atomic final publication | Small mocked download cannot overwrite the clean corpus as raw; wrong digest refuses publication; offline deterministic test | B04/B26; A05 |
 | ✅ R03a — dedup lineage | **Done 2026-09-09** — [dedup lineage contract](dedup-lineage-contract.md). Representative ordering, `source_row_id`, group lineage, unioned tags, re-anchored exact window, corrected blocking boundary; dedup clusters separated from article groups | Impact quantified on the real corpus rather than fixtures: 75.7% of (group, ticker) pairs destroyed; exact/near split wrong by 96.2% of the near count; membership effect only 93 ids; output not order-invariant (10.78% tag churn). Four decisions requested in §7 | B04/B11; A12 |
 | ✅ R03b — dedup repairs | **Done 2026-09-09.** `src/data.py`, `data/raw/download.py`, `tests/test_data.py`: re-anchored exact window, total representative order `(ts_utc, source_row_id)`, unioned tags, lineage artifact, corrected boundary; elimination chains resolved to a surviving root | 9 new tests, 216 passing 0 skipped. On the real corpus: order invariance verified (symmetric difference 0, was 2,363 ids and 10.78% tag churn), exact drops 539,087 as predicted, tickers 5,707 → 6,235, rate recomputable from lineage | R03a; A12 |
-| R03c — census correction | `src/audit.py`, audit tests/docs: derive all counts from one session assignment | Totals reconcile; real saved corpus reports 869,114 assigned headlines and one boundary zero; yearly window decision reviewed without outcome fitting | A06; independent of model setup |
+| ✅ R03c — census correction | `src/audit.py`, audit tests/docs: derive all counts from one session assignment | Totals reconcile; real saved corpus reports 869,114 assigned headlines and one boundary zero; yearly window decision reviewed without outcome fitting | A06; independent of model setup |
 | ✅ R03d — corpus verification checkpoint | **Done 2026-09-09.** Rebuilt raw → clean through the verified path; manifest now records `verified_against_pin: true`; lineage persisted | Raw data identical (same id set and `text_norm` multiset); clean corpus 869,205 → 869,183, symmetric difference 2,314 (0.27%); census reconciles 869,092 + 91; **D4 holds**. Surfaced and corrected a mislabelled `NEWS_FILE_SHA256` (HF `xetHash` from the ETag, not a SHA-256) | R02/R03a–c; required before final annotation draw |
-| R04a — market/calendar repair | `src/data.py`, `src/align.py`, loader/panel tests: calendar before returns, inclusive end handling, explicit warmup | Missing Tuesday makes Wednesday's return undefined; no one-session target spans a gap; final session requested; warmup does not expand analysis dates | Reopen B08, prepare B16; A04 |
-| R04b — score-to-panel gate | `src/align.py`, `run_all.py`, alignment tests: unique IDs, complete finite scores, required scorer set, artifact validation | Partial values, missing rows, duplicate IDs and incompatible measurements fail before aggregation | R01, A03/A15 |
+| ✅ R04a — market/calendar repair | `src/data.py`, `src/align.py`, loader/panel tests: calendar before returns, inclusive end handling, explicit warmup | Missing Tuesday makes Wednesday's return undefined; no one-session target spans a gap; final session requested; warmup does not expand analysis dates | Reopen B08, prepare B16; A04 |
+| ✅ R04b — score-to-panel gate | `src/align.py`, `run_all.py`, alignment tests: unique IDs, complete finite scores, required scorer set, artifact validation | Partial values, missing rows, duplicate IDs and incompatible measurements fail before aggregation | R01, A03/A15 |
 | ✅ R05 — protocol amendments | `docs/inference-protocol.md`, `docs/validation-protocol.md`, decision log | **Done 2026-09-09.** M1 precision approximation, M2 overlapping conclusions and boundaries, M3 classifier multiplicity, M4 group accuracy uncertainty, M5 training-overlap wording, M6 shift domain. **M7 (HAC spacing, A09) deferred to R07c by decision** | A09/A10; no real results required |
 | ✅ R06a — blind sample preparation | **Done 2026-09-09.** New `src/annotate.py`, `tests/test_validation.py` (30 tests), `data/annotation/` artifacts drawn and on disk | 800 drawn (200/600) across 10 strata; 799 unwindowed article groups, none spanning both parts; blind export is id+text only with a forbidden-column guard and a separate order seed; `load_split` re-checks the invariant; 60-item pilot and 160-item second-annotator subset identified; provenance leaves annotator fields blank by design | B11; R03/R05; no labels required to build tooling |
 | R06b — label ingestion and paired metrics | `src/validate.py`, validation tests: validate labels/provenance, fit calibration-only thresholds, paired group bootstrap | Known paired fixtures; identical predictions yield zero difference; all resamples preserve groups/pairing; unusable items counted | B15; R05/R06a; empirical use waits for human labels |
@@ -485,7 +506,7 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | ✅ R08a — return families | One unadjusted primary and exact 14-test secondary family with BH/BY; runner migrated | Membership/size asserted; primary excluded; full reference corrections and order invariance checked. No empirical fits | B18; R07 remains prerequisite for real estimates |
 | ✅ R08b — paired scorer effect | **Done 2026-09-10.** `common_eligibility`, `paired_scorer_contrast`/`PairedContrast` (stacked moment vectors through the shared `hac_meat`, block-diagonal bread), `incremental_contribution` for Section 7(b); `attenuation_comparison` and `horse_race` **deleted** | 21 tests (`tests/test_scorer_contrast.py`). Identical scorers give delta and se both exactly 0 and are flagged degenerate rather than floored; doubling or shifting a score leaves delta, its SE and the bps interval unchanged; the stacked covariance matches an independent all-pairs double loop and its diagonal blocks reproduce each single-equation `fit_hac` exactly. Mutation-checked: dropping the cross-equation term fails 2, abandoning the common sample fails 2 | B18; R07 |
 | ✅ R08c — timing diagnostic | **Done 2026-09-10.** `timing_diagnostic`: full circular shift over the retained rows in session order, midrank percentile, tie count, gap disclosure; `permutation_pvalue`, `_circular_block_permute` and their config settings **deleted**; Figure 2's "placebo p" annotation replaced | 17 tests (`tests/test_timing_diagnostic.py`). Every shift is a bijection; Frisch-Waugh coefficients checked against direct refits; a coefficient built to dominate ranks above the 97th percentile of its own shift distribution; no output key is a p-value and the record says so. Mutation-checked: rolling the residualized tone instead of residualizing the rolled tone fails the refit check — a real bug this caught during implementation | B19; R05/R07 |
-| R09 — honest current documentation | Reconcile handover/current-plan status, decision-log tail, README/notebook/report framing and neutral plot titles | No stale “B01 next”, unsupported `--all`, predetermined finding, wrong timing rule or completed-output claim | B27 preliminary pass; A14; can be done early |
+| ✅ R09 — honest current documentation | **Done 2026-09-10.** README, `report/report.md`, notebooks 02–05, the decision-log status paragraph, this plan's counts and tick marks, and the handover's status, module map and carried-defects table | Verified against the code, not against the prose's own history. Removed: the withdrawn three-conclusion rule (M2), McNemar as the primary accuracy test (M4), "a null that assumes nothing" and the deleted block permutation with its block/draws/seed (R08c, §11), the correlation>0.9 decision rule (R08b), the 5 bps SESOI as a "transaction-cost benchmark" (P19), per-scorer BH (M3/R08a), and notebook 04's instruction to report `d_t` prominently as "the project's most plausible positive finding" (P21/P23). Corrected: the decision log's stale corpus count, drawn-sample and blocker claims; "thirty increments" for a table of 29; nine missing tick marks. **A14 closed.** Two *code* defects re-verified open and left for the audit follow-up: substring domain matching and the inert `config.AGG` | B27 preliminary pass; A14; can be done early |
 | R10 — preflight and pilot readiness | Dependency inventory, separate unit/integration checks, explicit artifact prerequisites; bounded CLI pilot/chunk controls | Missing packages/artifacts fail clearly; genuine model-code failures cannot silently skip; chunk limits/checkpoint location recorded | B22 readiness; A13/A15; no security change |
 | R11 — pilot and bounded scoring | Measure actual model throughput, token truncation and checkpoint recovery; then separately authorized complete-session chunks | Measured rate/storage/truncation; verified fingerprints; complete per-session coverage; durable stop/resume | B22/B23; R01–R04/R10; usable model environment and dictionary |
 | R12 — mathematics | Write attenuation/scaling derivation, then one bounded reproducible simulation | Known generating process; conditional claims and simulated quantities explicit; no inference from simulation to observed market effect | B21; can proceed before real scores |
@@ -509,5 +530,7 @@ Stop with a reviewable diff and test results. R01b then closes the default-call 
 Cache repairs; pinned acquisition tooling on mocked inputs; census and dedup provenance; market-loader tests; complete-score gates; protocol amendment drafts; annotation tooling; synthetic paired validation; panel and inference fixtures; precision and family logic; the mathematical demonstration; current documentation; preflight and reproduction scaffolding.
 
 The model environment is usable and the actual LM dictionary/release are now available. Independent human labels remain pending, starting with the user's 60-item pilot. Market acquisition still requires a recorded download in the selected environment. R06b's implementation can proceed with synthetic fixtures; its empirical outputs wait for labels.
+
+**Counting note (R09, 2026-09-10).** The table below lists **29** increments; prose in earlier checkpoints said "thirty", which was never true of the table and is corrected throughout. Nine rows completed in earlier sessions carried no tick, so the table disagreed with its own checkpoints; they are marked now. **21 of 29 complete.** Outstanding: R09 (this pass), R10, R11, R12, R13a, R13b, R14, R15.
 
 The repair program spans multiple reviewable sessions. A credible estimate for full scoring and annotation should follow the measured pilot and annotator throughput, rather than repeat the original one-week estimate.

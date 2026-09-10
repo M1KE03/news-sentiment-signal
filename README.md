@@ -10,10 +10,10 @@ is not assumed to imply a stronger market coefficient, and the contribution does
 finding a signal.
 
 > **Status: infrastructure, no results.** The protocols are written and frozen, the corpus is
-> assembled and censused, and the timing, caching, acquisition and panel defects found by the
-> [2026-09-09 audit](docs/project-audit-2026-09-09.md) are being repaired in sequence — 11 of 30
+> assembled and censused, and the timing, caching, acquisition, panel and inference defects found by
+> the [2026-09-09 audit](docs/project-audit-2026-09-09.md) are being repaired in sequence — 22 of 29
 > increments done. **No text has been scored, no labels collected, no panel built, no model fitted,
-> and no empirical result of any kind exists.** 216 tests pass, 0 skip.
+> and no empirical result of any kind exists.** 388 tests pass, 0 skip.
 >
 > Current state lives in [`docs/handover.md`](docs/handover.md); the live plan is the
 > [repair sequence](docs/audit-implementation-plan-2026-09-09.md).
@@ -54,9 +54,13 @@ FDR-controlled five-horizon family, a block-permutation placebo, a transaction-c
 describe procedures the accepted protocols replaced, and writing the conclusion's skeleton before
 the evidence is the pattern this project spent the audit removing.
 
-What can be said now is what the design permits: three conclusions are available to Act 2 —
-evidence of association, evidence the effect is small against a prespecified 5 bps yardstick, and an
-explicit **inconclusive** — and the last is a legitimate result that will be reported as one.
+What can be said now is what the design permits. Act 2 reports **two independent facts about the
+same interval**, always together: whether it excludes zero, and whether it lies inside ±5 bps. An
+earlier version of this section listed *three* conclusions — association, smallness, inconclusive —
+which overlapped: an interval of [1, 3] bps satisfied the first two at once and no rule chose
+between them. That framing was withdrawn (M2). Of the four combinations the two facts produce, one
+is an informative null and one is an explicit **inconclusive**; both are legitimate results and will
+be reported as such.
 
 ## Reproduce
 
@@ -103,13 +107,13 @@ rescore.py           the one-off FinBERT pass (--time-only times it first)
 src/data.py          news load + mandatory source filter, dedup with lineage, SPY/^VIX, NYSE calendar
 src/scoring.py       LM | VADER | FinBERT, behind one Scorer protocol; hash-keyed cache
 src/align.py         both mappers, daily aggregation, the panel, all lags and leads, score gate
-src/validate.py      Act 1 metrics (not yet reworked to the validation protocol -- R06b)
-src/inference.py     Newey-West OLS, BH lag family, bps effect sizes
-                     (still the original plan's methods -- R07/R08 replace them)
+src/validate.py      Act 1: label ingestion, calibration-only thresholds, paired group bootstrap
+src/inference.py     eligibility ledger, the frozen primary spec, session-indexed HAC,
+                     the 14-test secondary family (BH/BY), paired scorer contrast, timing shift
 src/plots.py         one function per numbered figure; no plotting code anywhere else
 tests/               the firewall + scorer range/determinism/cache checks
 notebooks/           01 audit · 02 validation · 03 signal · 04 volume+vol · 05 robustness
-docs/                the frozen implementation plan
+docs/                the frozen protocols, the audit, and the repair sequence
 report/report.md     the two-page write-up
 future-work.md       where scope creep goes to die quietly
 ```
@@ -117,20 +121,38 @@ future-work.md       where scope creep goes to die quietly
 ## Method notes
 
 - **Newey–West everywhere.** Sentiment is persistent and residuals are serially correlated and
-  heteroskedastic; naive OLS standard errors overstate significance. maxlags = 5, with 10 as a
-  sensitivity check.
-- **Benjamini–Hochberg, not Bonferroni.** Five adjacent lags are strongly correlated; Bonferroni
-  controls the probability of *any* false positive and sacrifices power badly there. BH controls the
-  expected *proportion* of false discoveries — the right trade-off for a small family declared in
-  advance.
-- **McNemar, not two accuracies.** The classifiers score the *same* sentences, so the predictions
-  are paired. Comparing two accuracies as if they came from independent samples discards the pairing
-  and gets the variance wrong.
-- **Circular block permutation.** Shifting S_t in blocks preserves its own autocorrelation while
-  destroying its alignment with returns — a null that assumes nothing about the error process.
+  heteroskedastic; naive OLS standard errors overstate significance. `L = 5` is prespecified as one
+  trading week, with `L ∈ {0, 1, 10}` and the data-driven plug-in bandwidth reported alongside as
+  sensitivities rather than substituted for it. A lag counts **exchange sessions**, not rows of the
+  analysis sample — the two differ wherever the sample has gaps, and only the first makes "one
+  trading week" true ([the spacing decision](docs/hac-spacing-decision.md)).
+- **One primary test, then a closed family of 14.** FinBERT at h = 1 is the primary and carries no
+  correction, because a family of one needs none. The remaining 14 (scorer, horizon) pairs are
+  corrected together: Bonferroni controls the probability of *any* false positive and sacrifices
+  power badly on tests this correlated, so Benjamini–Hochberg at q = 0.05 is used. BH's guarantee
+  needs positive dependence, which is plausible here but not established, so **Benjamini–Yekutieli**
+  — valid under arbitrary dependence — is reported alongside, and where they disagree the claim is
+  made at the BY level.
+- **Group bootstrap, not two accuracies.** The classifiers score the *same* headlines, so the
+  predictions are paired — but pairing alone is not enough, because near-duplicate headlines from
+  one story are not independent draws either. Both the macro-F1 and the accuracy comparisons
+  resample whole **article groups**. Exact McNemar is retained as a supplementary exhibit, printed
+  with the group-size distribution and the explicit note that its independence assumption is
+  contradicted by this design's own grouping (M4).
+- **A circular shift, reported as a percentile.** Every shift of the standardized tone series is a
+  bijection: each observation is used exactly once and the series' autocorrelation is preserved
+  exactly. An earlier version drew blocks **with replacement**, which duplicated some observations
+  and omitted others, so it was not a permutation at all. It is a **descriptive timing diagnostic**
+  and never a p-value: shifting tone also destroys its relationship with the controls, so the
+  resulting spread is not the null distribution of the conditional coefficient — and no procedure
+  here is assumption-free.
 - **No trading backtest, on purpose.** A backtest turns an inference question into a specification
-  search over costs, sizing and rebalancing, every one of them p-hackable. Economic significance is
-  delivered instead by the bps-per-1σ figure against a transaction-cost benchmark.
+  search over costs, sizing and rebalancing, every one of them p-hackable. What replaces it is a
+  **yardstick for smallness**, not a profitability test: 5 bps per 1σ is the order of magnitude of
+  one-way execution cost in a large liquid ETF, so an association below it is small relative to
+  frictions any user would face. A coefficient above it does not establish that a strategy makes
+  money, and one below it does not establish the information is useless — realised value depends on
+  signal use, timing, turnover, holding period and capacity, none of which this design measures.
 
 ## Data and credits
 

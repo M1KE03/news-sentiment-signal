@@ -1,5 +1,10 @@
 # Reading the News with a Machine
-## Does FinBERT's classification skill survive as a market signal?
+## How three sentiment measurements differ, and what they add about the next session
+
+> **Title corrected 2026-09-10 (R09, P06).** The subtitle previously asked whether FinBERT's
+> classification skill "survives as a market signal", which presupposes the skill Act 1 exists to
+> measure and frames Act 2 as a test of survival rather than of association. The bridge between the
+> two acts is a conditional hypothesis, not the report's spine.
 
 > **Skeleton, and nothing more.** Section order is fixed so that writing is not deciding. Every
 > `[…]` is filled from `report/tables/` and `figures/`. Target: two pages.
@@ -63,9 +68,13 @@ exists to prevent; any deviation is logged with its date in `future-work.md`.)*
 - **Scorers (D7):** LM (pos−neg)/(pos+neg); VADER compound; FinBERT P(pos) − P(neg). All in [−1, 1].
 - **Aggregation (D8/D9):** equal-weighted daily mean S_t; count n_t; within-day dispersion d_t
   defined only when n_t ≥ 5. Zero-news days dropped and counted: […].
-- **Inference (D10–D12):** Newey–West maxlags = 5; horizons t+1…t+5 declared in advance with
-  Benjamini–Hochberg at q = 0.05 within each scorer; circular block permutation, block 21, 1,000
-  draws, seed 20260830.
+- **Inference (D10–D12):** Newey–West `L = 5`, prespecified as one trading week and counted in
+  **exchange sessions** rather than retained rows, with the row-counting convention reported
+  alongside ([spacing decision](../docs/hac-spacing-decision.md)). One **primary** test — FinBERT,
+  h = 1, unadjusted — and a closed secondary family of the remaining 14 (scorer, horizon) pairs
+  under BH at q = 0.05, with Benjamini–Yekutieli alongside; where they disagree the claim is made at
+  the BY level. The timing diagnostic is an exhaustive **circular shift** of standardized tone over
+  the retained rows, reported as a percentile rank.
 - **Dedup:** exact `text_norm` matches within 3 days, plus token-set overlap ≥ 0.9. Dedup rate: […].
 
 ### 3. Data
@@ -113,14 +122,22 @@ not a profitability threshold — no claim about strategy returns is made in eit
 realised value depends on signal use, timing, turnover, holding period and capacity, none of which
 this design measures (P19).
 
-**The bridge, tested (§6.3).** Identical specification, FinBERT vs LM: […]. Daily correlation of the
-two S_t series: […]. *If that correlation exceeds 0.9 the comparison has little room to separate the
-scorers, and is reported as bounded and inconclusive — not redesigned until it separates them.*
+**The bridge, tested (§7a).** `delta = beta_FinBERT − beta_LM`, both standardized, both fitted on
+the **identical** observation set, with the cross-equation HAC covariance in `delta`'s standard
+error: […]. Two separate t-statistics are not a test of the difference (P07), and no claim that one
+scorer beats the other is made without this interval.
+
+Daily correlation of the two standardized series, and the tone VIFs: […]. These are **diagnostics,
+not a decision rule.** An earlier version of this paragraph declared the comparison "bounded and
+inconclusive" whenever the correlation exceeded 0.9. That threshold was removed (R08b): a high
+correlation widens `delta`'s interval, and the widened interval is already the honest, quantitative
+statement of what the data can distinguish.
 
 ### 6. Volume and volatility
 
-**Table 5 / Figure 3.** Next-day Parkinson volatility and detrended turnover on level, intensity
-(|S_t|) and dispersion (d_t). **The primary test for each is a HAC Wald test of the joint null
+**Table 5 / Figure 3.** Next-day range variance (`rv_parkinson` — a high–low **range** estimator of
+variance, not total daily volatility) and next-day **detrended log volume** (log share volume; no
+denominator makes it turnover — P22) on level, intensity (|S_t|) and dispersion (d_t). **The primary test for each is a HAC Wald test of the joint null
 `b1 = b2 = b3 = 0`**; individual coefficients, `d_t`'s included, are reported descriptively
 afterwards with pointwise intervals. That ordering is what stops one coefficient being promoted to
 the headline once someone has looked at it (P21), and it replaces the instruction to "lead with the
@@ -161,9 +178,14 @@ dropping n_t < 5 from the S_t specifications; the single-name spot check.
 ### 9. Why there is no trading backtest
 
 Two sentences. A backtest converts an inference question into a specification search over costs,
-sizing and rebalancing rules, every one of them p-hackable. Economic significance is delivered
-instead by Table 4 — basis points per 1σ against a transaction-cost benchmark — with none of that
-surface area.
+sizing and rebalancing rules, every one of them p-hackable. What Table 4 delivers instead is a
+**yardstick for smallness** — basis points per 1σ against the prespecified 5 bps SESOI — which is
+not a profitability threshold and is not read as one in either direction (P19).
+
+> **Corrected 2026-09-10 (R09).** This section previously called the 5 bps figure a
+> "transaction-cost benchmark" against which economic significance was "delivered", contradicting
+> §5's own statement two pages earlier and the inference protocol's §11, which forbids claiming or
+> denying strategy profitability from a coefficient and a cost figure.
 
 ---
 
