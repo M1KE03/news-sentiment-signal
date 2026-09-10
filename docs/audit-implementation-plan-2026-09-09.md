@@ -4,7 +4,37 @@ Based on the [project audit](project-audit-2026-09-09.md). This repair sequence 
 
 ## Execution checkpoint — 2026-09-10
 
-### Latest: R11 — length-sorted batching, and three provenance findings
+### Latest: R12 — the mathematical demonstration (B21, P06, P32)
+
+**R12 complete. 24 of 29 increments done.** 449 tests pass, 0 skip. New: [`mathematical-appendix.md`](mathematical-appendix.md), `attenuation_study.py`, `tests/test_attenuation.py` (23 tests). No project data is read and no empirical quantity is produced.
+
+**The derivation produced a result the protocol did not have.** P06 downgraded the Act 1 → Act 2 bridge from an implication to a conditional hypothesis, on the grounds that its assumptions were unverified. The appendix goes further: under this study's own design the bridge is **compressed to near-nothing before any question of whether the scorers differ**.
+
+Two steps do it. First, the protocol regresses on `z(S_t)`, and standardizing changes the attenuation exponent:
+
+```text
+beta_z = theta * sd(Z) * sqrt(lambda)      not   theta * lambda
+```
+
+Since `lambda <= 1`, `sqrt(lambda) >= lambda`, so shrinkage is milder than the textbook formula and differences between scorers are correspondingly smaller. Standardization also removes the scorer-specific scale factor `a` entirely, which is the formal justification for specifying §7(a)'s paired contrast on `z(S)` rather than on raw scores.
+
+Second, `S_t` is a mean over `n_t` headlines. With independent per-headline errors, `Var(ubar) = Var(u)/n_t`, while the day-to-day signal `Var(Zbar)` does not shrink. At the census median of **337 headlines per session**:
+
+| | per-headline | daily, n = 337 | daily + standardized |
+|---|---:|---:|---:|
+| ratio of coefficients, 2x noise gap | **1.96x** | 1.069x | **1.034x** |
+
+A **twofold difference in per-headline measurement noise becomes a 3.4% difference in the standardized daily coefficient.** This matters for how §7(a) is read: a small `delta` has an explanation internal to the design and is therefore weak evidence about relative classification quality. Act 1 remains where that question is answered.
+
+**Three ways the classical model fails here, each derived and simulated.**
+
+- **Aggregation depends on independence (A5), which is not established.** With within-day error correlation `rho`, `Var(ubar) = Var(u)(1 + (n-1)rho)/n`, so the effective divisor at `rho = 0.1` is **9.7, not 337**. A scorer that systematically misreads one kind of headline makes correlated mistakes on days those headlines cluster. The compression factor is somewhere between 1 and `n_t` and the design does not pin it down.
+- **Bounded scores break A2 outright.** Every scorer maps to `[-1, 1]`; near a bound the error cannot point outward, so `Cov(Z, u) < 0` by construction. Simulated: `Cov(Z, u) = -0.41`, and the coefficient came out **0.49 against a classical prediction of 0.33** — amplified, not attenuated. The corrected plim, `theta(Var(Z)+Cov(Z,u)) / (Var(Z)+2Cov(Z,u)+Var(u))`, predicts 0.494 and matches. "Attenuation toward zero" is not a safe reading for a bounded score.
+- **`theta = 0` absorbs everything.** If aggregate tone has no conditional relation to the next return, no reduction in measurement error creates one. Simulated across four reliability ratios: all coefficients within 0.002 of zero.
+
+**What it does not establish**, stated in the appendix §7 and enforced by a test: no simulated quantity estimates `theta`, `lambda`, `Var(u)` or any coefficient for SPY or for these scorers. `tests/test_attenuation.py` asserts the study script contains no `read_parquet`, no `import config` and no `from src`, so it cannot quietly acquire a dependency on project data later.
+
+### Previous: R11 — length-sorted batching, and three provenance findings
 
 **Authorized by the user** ("i accept 1-2"): implement the batching optimisation, then run the full pass. The pass is running against 869,183 headlines. 426 tests pass, 0 skip.
 
@@ -583,7 +613,7 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | ✅ R09 — honest current documentation | **Done 2026-09-10.** README, `report/report.md`, notebooks 02–05, the decision-log status paragraph, this plan's counts and tick marks, and the handover's status, module map and carried-defects table | Verified against the code, not against the prose's own history. Removed: the withdrawn three-conclusion rule (M2), McNemar as the primary accuracy test (M4), "a null that assumes nothing" and the deleted block permutation with its block/draws/seed (R08c, §11), the correlation>0.9 decision rule (R08b), the 5 bps SESOI as a "transaction-cost benchmark" (P19), per-scorer BH (M3/R08a), and notebook 04's instruction to report `d_t` prominently as "the project's most plausible positive finding" (P21/P23). Corrected: the decision log's stale corpus count, drawn-sample and blocker claims; "thirty increments" for a table of 29; nine missing tick marks. **A14 closed.** Two *code* defects re-verified open and left for the audit follow-up: substring domain matching and the inert `config.AGG` | B27 preliminary pass; A14; can be done early |
 | ✅ R10 — preflight and pilot readiness | **Done 2026-09-10.** New `src/preflight.py` and root `preflight.py` CLI (`--stage`, `--load-models`, `--cache`, `--output` JSON, `--freeze`, `--strict`), merged with the root script already committed by concurrent work on the same increment); `requirements.txt` re-pinned to the tested environment; `rescore.py` gains `--sessions`, `--checkpoint-every`, `--dry-run`; `run_all.py` and `rescore.py` gate on artifacts before doing anything expensive | 30 tests (`tests/test_preflight.py`), 418 passing 0 skipped. A13 quantified then closed: **1 ok, 11 mismatch, 3 absent** before, 12 ok after, with a standing test that fails if the pins drift again — mutation-checked by restoring the original `numpy` pin. Missing artifacts now name themselves, their path, and the command that produces them, and separate "run this" from "a person must do this". Bounding is **by whole session**, never by headline count | B22 readiness; A13/A15; no security change |
 | 🟡 R11 — pilot and bounded scoring | **Pilot done 2026-09-10; full pass awaits authorization.** Measured: 54 headlines/s on CPU, **4.49 h projected** (over the 2 h budget — a D4 decision for the user); truncation at 64 tokens **0.45 %** (3,921), whole corpus tokenized; 128 B/row → ≈ 111 MB. Bounded chunk `--sessions 10`: 546 headlines, complete per session, all three fingerprints verified, resume in 0.2 s with zero rescoring | Rate/storage/truncation measured; fingerprints verified; per-session coverage complete; stop/resume durable on real data. Carried: VADER fingerprint records `version: unknown` | B22/B23; R01–R04/R10; usable model environment and dictionary |
-| R12 — mathematics | Write attenuation/scaling derivation, then one bounded reproducible simulation | Known generating process; conditional claims and simulated quantities explicit; no inference from simulation to observed market effect | B21; can proceed before real scores |
+| ✅ R12 — mathematics | **Done 2026-09-10.** [`mathematical-appendix.md`](mathematical-appendix.md) + `attenuation_study.py` (six cases, seed 20260830) | 23 tests. Derived: standardization changes the attenuation exponent to 1/2 and removes the scorer scale; daily aggregation over 337 headlines compresses a **2x per-headline noise gap to 1.034x** in the standardized coefficient. Failure modes derived and simulated: correlated within-day error (effective divisor 9.7 not 337 at rho=0.1), bounded scores (`Cov(Z,u) = -0.41`, coefficient **amplified** to 0.49 vs classical 0.33), and `theta = 0`. A test asserts the script reads no project data | B21; can proceed before real scores |
 | R13a — empirical validation | Run frozen independent evaluation and paired uncertainty | Human-label provenance, frozen thresholds, class balance, agreement limitations and interval outputs verified | B24; R06/R11 and human labels |
 | R13b — empirical primary analysis | Build verified panel; record precision estimate before coefficient inspection; run primary plus separately selected secondary work | Eligibility, timing, scale, pointwise uncertainty and manifest complete; no same-day claim | B25; completed required scoring and R07/R08 |
 | R14 — integrated reproduction | Runner + thin notebooks, run manifests, staged output publication, supported acquisition commands | Documented workflow rebuilds every promised core table/figure from stated inputs; stale panel or incomplete run cannot appear current | B26; R13 |
@@ -605,6 +635,6 @@ Cache repairs; pinned acquisition tooling on mocked inputs; census and dedup pro
 
 The model environment is usable and the actual LM dictionary/release are now available. Independent human labels remain pending, starting with the user's 60-item pilot. Market acquisition still requires a recorded download in the selected environment. R06b's implementation can proceed with synthetic fixtures; its empirical outputs wait for labels.
 
-**Counting note (R09, 2026-09-10).** The table below lists **29** increments; prose in earlier checkpoints said "thirty", which was never true of the table and is corrected throughout. Nine rows completed in earlier sessions carried no tick, so the table disagreed with its own checkpoints; they are marked now. **23 of 29 complete.** Outstanding: R11, R12, R13a, R13b, R14, R15.
+**Counting note (R09, 2026-09-10).** The table below lists **29** increments; prose in earlier checkpoints said "thirty", which was never true of the table and is corrected throughout. Nine rows completed in earlier sessions carried no tick, so the table disagreed with its own checkpoints; they are marked now. **24 of 29 complete.** Outstanding: R11 (full pass running), R13a, R13b, R14, R15.
 
 The repair program spans multiple reviewable sessions. A credible estimate for full scoring and annotation should follow the measured pilot and annotator throughput, rather than repeat the original one-week estimate.

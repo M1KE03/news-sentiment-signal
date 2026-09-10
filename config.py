@@ -166,7 +166,15 @@ LM_DICT_SHA256 = "e2d1328682bab7d2187684fb9f5420bb730401c9eefc00daf835edd203f485
 
 # --------------------------------------------- D8/D9 daily aggregation ----
 
+# How S_t summarises a session's headline scores. Read by
+# `align.aggregate_daily` and recorded in the panel's provenance, so a median
+# run cannot be mistaken for the primary one. Until R12 this constant was inert
+# -- `aggregate_daily` hardcoded the mean -- so changing it changed nothing
+# while appearing to change the specification (audit A15).
+# D8 fixes "mean" as primary; "median" is the Stage 6 robustness variant and is
+# selected by passing it explicitly, never by editing this line.
 AGG = "mean"                 # equal-weighted mean of the day's headline scores
+AGG_CHOICES = ("mean", "median")
 MIN_HEADLINES_FOR_DISPERSION = 5   # d_t is NaN below this
 # Trading days with n_t == 0 are dropped from every regression, and the count
 # is reported. Days with 1 <= n_t < 5 keep S_t but are excluded from d_t specs.

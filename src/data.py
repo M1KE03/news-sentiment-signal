@@ -78,6 +78,24 @@ def _headline_id(text_norm: str, ts_utc: pd.Timestamp) -> str:
 _SENTINEL: tuple[str, ...] = ("__use_config__",)
 
 
+def _host_matches(host: str, domains: tuple[str, ...]) -> bool:
+    """Exact host or true subdomain -- never a substring.
+
+    The filter is mandatory rather than hygiene: `All_external.csv` concatenates
+    five-plus corpora including the Russian-language `lenta.ru`, so a leak is a
+    different corpus, not a little extra noise. Substring membership
+    (`any(d in h for d in domains)`) accepted any host that merely *contained*
+    an approved domain, so `notbenzinga.com` and `benzinga.com.evil.example`
+    both passed. No such host was observed in the saved corpus; the check is
+    tightened because the filter's job is to be the boundary, not to be
+    approximately right (audit A15, closed R12 follow-up).
+
+    `host` has already had a leading `www.` stripped by the extraction regex.
+    """
+    host = host.lower().rstrip(".")
+    return any(host == d or host.endswith("." + d) for d in (x.lower() for x in domains))
+
+
 def _parse_chunk(raw: pd.DataFrame, spec: dict, domains: tuple[str, ...],
                  start, end, stats: dict) -> pd.DataFrame:
     """One chunk: validate stamps, filter by source, build the schema."""
@@ -109,7 +127,7 @@ def _parse_chunk(raw: pd.DataFrame, spec: dict, domains: tuple[str, ...],
     )
 
     if domains:
-        keep = host.fillna("").apply(lambda h: any(d in h for d in domains))
+        keep = host.fillna("").apply(lambda h: _host_matches(h, domains))
         stats["n_wrong_source"] += int((~keep).sum())
         for h in host[~keep].fillna("(no url)").value_counts().head(20).items():
             stats["rejected_hosts"][h[0]] = stats["rejected_hosts"].get(h[0], 0) + int(h[1])

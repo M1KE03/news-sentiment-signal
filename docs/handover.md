@@ -25,7 +25,7 @@ The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-0
 1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
 2. **§5a** names the next increment and why it is next.
 3. **§6** is what you cannot do without a human.
-4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **418 passing, 0 skipped**, is the baseline.
+4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **449 passing, 0 skipped**, is the baseline.
 
 Three facts that will save you an hour:
 
@@ -296,7 +296,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 
 | ID | Task | Status |
 |---|---|---|
-| B21 | Derivation + simulation | ⬜ |
+| B21 | Derivation + simulation | ✅ **R12, 2026-09-10** — [`mathematical-appendix.md`](mathematical-appendix.md), `attenuation_study.py` |
 | B22 | Scoring pilot and extrapolation | ⬜ **unblocked 2026-09-09** — Smart App Control disabled; `torch 2.14.0+cpu` loads and FinBERT runs. Pilot not yet measured — **R10/R11** |
 | B23 | Bounded, resumable scoring run | ⬜ |
 | B24 | Independent classification results | ⬜ |
@@ -334,7 +334,7 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R09 | A14 | ✅ Documentation reconciled against the code; withdrawn procedures and a predetermined finding removed |
 | R10 | A13, A15 | ✅ Preflight inventory and artifact gates; `requirements.txt` re-pinned to the tested environment; bounded whole-session scoring |
 | R11 | — | 🟡 **Pilot done.** 54 headlines/s, 4.49 h projected, 0.45 % truncation, 111 MB; 10-session chunk scored, verified, resumed. **Full pass awaits the user's D4/budget decision** |
-| R12 | — | ⬜ The mathematical demonstration |
+| R12 | — | ✅ Attenuation derivation + six-case simulation. Standardization gives exponent 1/2; aggregation over 337 headlines compresses a 2x noise gap to 1.034x; bounded scores **amplify** rather than attenuate |
 | — | — | **8 of 15 findings' repairs remain**: R11–R15. A13 and A14 closed at R10/R09 |
 | R13a, R13b | — | ⬜ Empirical validation and primary analysis |
 | R14, R15 | — | ⬜ Reproduction and presentation |

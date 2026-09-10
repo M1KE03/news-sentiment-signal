@@ -31,6 +31,9 @@ vaderSentiment==3.3.2
 
 # --- data ---------------------------------------------------------------
 pandas-market-calendars==5.4.0   # NYSE sessions; D6 depends on this being right
+yfinance==0.2.66             # SPY OHLCV + ^VIX. Installed 2026-09-10 at the
+                             # user's instruction; its loader path had never
+                             # been executed in this environment before that.
 
 # --- figures ------------------------------------------------------------
 matplotlib==3.11.1
@@ -43,9 +46,6 @@ pytest==9.1.1
 # because nothing here has been executed against them. Do not read a passing
 # test run as evidence about any of these.
 #
-#   yfinance==0.2.66       `data/raw/download.py --market` (SPY, ^VIX).
-#                          Absent here, so the market artifact cannot be built
-#                          in this environment; `preflight.py` reports it.
 #   datasets==4.0.0        Financial PhraseBank only, which is supplementary
 #                          (validation protocol section 2) and separately blocked:
 #                          4.0.0 removed dataset scripts and `trust_remote_code`

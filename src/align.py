@@ -386,6 +386,7 @@ def aggregate_daily(
     prior_session: pd.Timestamp | str | None = None,
     require_complete: bool = True,
     required_scorers: Sequence[str] = config.SCORERS,
+    agg: str = config.AGG,
 ) -> pd.DataFrame:
     """Per trading session: n_t, S_t per scorer, and dispersion d_t.
 
@@ -461,10 +462,18 @@ def aggregate_daily(
         coverage["incomplete_sessions"] = [str(d.date()) for d in incomplete[:10]]
         df = df[df["date"].isin(complete.index[complete])]
 
+    if agg not in config.AGG_CHOICES:
+        raise ValueError(f"agg must be one of {config.AGG_CHOICES}, got {agg!r}")
+    coverage["aggregation"] = agg
+
     grouped = df.groupby("date")
     daily = pd.DataFrame({"n_headlines": grouped.size()})
     for n in config.SCORERS:
-        daily[f"s_{n}"] = grouped[f"score_{n}"].mean()
+        # S_t follows `agg`; d_t is the within-day standard deviation under
+        # either choice, because the protocol defines dispersion that way
+        # (section 6) and swapping in a MAD would change the estimand rather
+        # than test the aggregation rule.
+        daily[f"s_{n}"] = getattr(grouped[f"score_{n}"], agg)()
         daily[f"d_{n}"] = grouped[f"score_{n}"].std(ddof=1)
 
     thin = daily["n_headlines"] < config.MIN_HEADLINES_FOR_DISPERSION
