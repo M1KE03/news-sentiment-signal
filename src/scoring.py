@@ -156,7 +156,7 @@ class VaderScorer:
 class FinbertScorer:
     """`ProsusAI/finbert`, reported as P(positive) - P(negative).
 
-    Truncation at 64 tokens is safe here: the inputs are headlines. Model is put
+    Truncation at the configured token limit is measured in the pilot. Model is put
     in eval mode and run under `no_grad` -- inference only, no fine-tuning
     anywhere in this project.
     """
@@ -171,6 +171,8 @@ class FinbertScorer:
         max_length: int = config.FINBERT_MAX_LENGTH,
         device: str | None = None,
     ):
+        if batch_size <= 0 or max_length <= 0:
+            raise ValueError("batch_size and max_length must be positive")
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 

@@ -168,10 +168,20 @@ MIN_HEADLINES_FOR_DISPERSION = 5   # d_t is NaN below this
 NW_MAXLAGS = 5
 NW_MAXLAGS_SENSITIVITY = 10  # Stage 6
 
+# What the prespecified bandwidth L = 5 counts (A09 / amendment M7, settled at
+# R07c on 2026-09-10). "One trading week" is a statement about exchange
+# sessions, so a lag counts sessions: pairs more than L sessions apart get zero
+# weight even when they are adjacent rows of a gapped analysis sample. The
+# alternative -- lag = L retained ROWS, which is what statsmodels computes after
+# an index reset, and whose own documentation assumes equally spaced periods --
+# is always computed and reported alongside as a sensitivity, never substituted.
+# See docs/hac-spacing-decision.md.
+HAC_CONVENTION = "session_indexed"
+
 # ------------------------------------------------------ D11 lag family ----
 
 HORIZONS = (1, 2, 3, 4, 5)
-FDR_Q = 0.05                 # Benjamini-Hochberg, within each scorer's family
+FDR_Q = 0.05                 # BH across the 14 secondary return tests; BY sensitivity
 
 # ---------------------------------------------------------- D12 placebo ----
 
@@ -200,7 +210,8 @@ MCNEMAR_SECONDARY = ("finbert", "vader")
 # ------------------------------------------------------ D15 effect size ----
 
 BPS_PER_UNIT = 10_000
-TRANSACTION_COST_BPS = 5.0   # ~5 bps one-way, the economic-significance bar
+SESOI_BPS = 5.0             # Small-effect yardstick for association, not profitability
+TRANSACTION_COST_BPS = SESOI_BPS  # Compatibility alias for historical configurations
 
 # --------------------------------------------- D16 seeds / reproducibility ----
 
@@ -231,3 +242,7 @@ ANNOTATION_ORDER_SEED = 20260831
 # still one article for leakage purposes, and a group must never straddle the
 # calibration/evaluation boundary.
 ANNOTATION_GROUP_OVERLAP = 0.90
+
+# Filled only after the human calibration labels have been validated. Record
+# the calibration provenance and thresholds before scoring evaluation text.
+VALIDATION_THRESHOLDS = None  # later: {"lm": [lo, hi], "vader": [lo, hi]}

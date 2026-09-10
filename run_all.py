@@ -16,7 +16,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
+from pathlib import Path
 
 import pandas as pd
 
@@ -116,8 +119,28 @@ def build_panel() -> pd.DataFrame:
     return panel
 
 
+def write_advance_precision(record: dict) -> None:
+    """Publish the planning record atomically; failure must stop estimation."""
+    payload = json.dumps(record, indent=2, allow_nan=False)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=TABLES,
+                                         prefix=".advance-precision-", suffix=".tmp", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(payload + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, TABLES / "advance_precision.json")
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
 def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     TABLES.mkdir(parents=True, exist_ok=True)
+    # Persist advance planning before any tone/outcome regression is called.
+    precision = inference.primary_precision(panel)
+    write_advance_precision(precision)
     sample, coverage = inference.analysis_sample(panel)
     print(
         f"panel: {coverage['n_sessions']} sessions, "
@@ -151,9 +174,10 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
             "produced (docs/data-audit-fnspid.md)."
         )
 
-    # --- Table 3: the lag family, BH-corrected (RQ3) ---------------------
-    families = {sc: inference.lag_family(sample, sc) for sc in config.SCORERS}
-    table3 = pd.concat(families.values(), ignore_index=True)
+    # --- Table 3: unadjusted primary + 14 secondary return tests (BH/BY) --
+    families = {sc: inference.lag_family(panel, sc) for sc in config.SCORERS}
+    table3 = inference.adjust_return_families(pd.concat(families.values(), ignore_index=True))
+    families = {sc: table3.loc[table3["scorer"] == sc].copy() for sc in config.SCORERS}
     table3.to_csv(TABLES / "table3_lag_family.csv", index=False)
 
     # --- placebo (D12) ---------------------------------------------------
@@ -165,8 +189,7 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
 
     # --- Table 4: effect sizes in bps per 1 sigma (D15) ------------------
     table4 = pd.concat(
-        [inference.effect_size_table(fam, sample[f"s_{sc}"].std())
-         for sc, fam in families.items()],
+        [inference.effect_size_table(fam) for fam in families.values()],
         ignore_index=True,
     )
     table4.to_csv(TABLES / "table4_effect_sizes.csv", index=False)
@@ -208,6 +231,7 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     plots.save(plots.figure_coverage(panel), "figure_coverage")
 
     summary = {
+        "advance_precision": "advance_precision.json",
         "coverage": coverage,
         "placebo": placebo,
         "corr_finbert_lm": corr,

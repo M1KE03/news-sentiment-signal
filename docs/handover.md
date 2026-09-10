@@ -10,26 +10,28 @@ Related: [implementation plan](implementation-plan.md) (B01–B28) · [decision 
 
 ## 1. Where the project stands, in one paragraph
 
+**Inference update, 2026-09-10:** R07d and R08a are implemented and integrated: advance precision on eligible rows is atomically recorded before any tone fit; pointwise effects report both evidence dimensions and boundaries; the exact primary + 14 secondary return family uses BH/BY. R07b/R07c code appeared concurrently and supplies eligibility, standardized regressions and HAC covariance; its own M7 decision record is tracked separately. See the [reporting contract](inference-reporting-contract.md). No empirical coefficient was estimated. **333 tests passed, 0 skipped.**
+
 **Dependency update, 2026-09-10:** the LM dictionary is now acquired and verified (1993–2025, March 2026 release; [provenance](lm-dictionary-provenance.md)). The user volunteered to label the 60-item pilot; [worksheet](../data/annotation/pilot_worksheet.csv) and [instructions](../data/annotation/PILOT_README.md) are ready. Labels are still pending. R06b implementation can proceed on synthetic fixtures without labels; R13a empirical evaluation cannot. R11 no longer waits for the dictionary, but still follows its implementation/readiness prerequisites. The frozen sample was not redrawn.
 
-The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: **869,183** deduplicated Benzinga headlines over 2,516 trading sessions, with D4 frozen on coverage evidence. A full project audit on 2026-09-09 found fifteen issues (A01–A15); **fourteen of the thirty repair increments are complete**, covering scoring-cache identity and durable checkpoints, verified acquisition, the census mapping, the market-return calendar, the score-to-panel gate, the protocol amendments, the deduplication lineage and its verified rebuild, and Act 1's blind sample. **No text has been scored, no labels have been collected, no panel has been built, no model has been fitted, and no empirical result exists.**
+The protocols are written, the candidate dataset has been audited, every timing defect found in the review has been fixed with a regression test behind it, and **the corpus is assembled**: **869,183** deduplicated Benzinga headlines over 2,516 trading sessions, with D4 frozen on coverage evidence. A full project audit on 2026-09-09 found fifteen issues (A01–A15). Completed repairs cover scoring-cache identity and durable checkpoints, verified acquisition, census mapping, the market-return calendar, score-to-panel checks, protocol amendments, deduplication lineage and its verified rebuild, Act 1's blind sample, and the inference reporting work above. **No corpus-wide scoring or empirical market regression was performed in this increment; independent labels and empirical results remain pending.**
 
-**258 tests pass, 0 skip.** The seven long-standing skips were FinBERT and VADER; Smart App Control has since been disabled, so `torch` loads and every test executes.
+The seven long-standing skips were FinBERT and VADER; Smart App Control has since been disabled, so `torch` loads and every test executes.
 
-The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-09.md) — **14 of 30 increments complete** — which sits inside the B01–B28 roadmap below and is the authoritative execution order.
+The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-09.md), which sits inside the B01–B28 roadmap below and records each increment's current state.
 
 ### Start here
 
 1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
 2. **§5a** names the next increment and why it is next.
 3. **§6** is what you cannot do without a human.
-4. Run `pytest` before touching anything: 258 passing, 0 skipped, is the baseline.
+4. Run `pytest` before touching anything: **333 passing, 0 skipped**, is the baseline.
 
 Three facts that will save you an hour:
 
 - **The corpus is final.** It was rebuilt through the verified acquisition path at R03d; `interim/headlines.parquet` is 869,183 rows and its manifest records `verified_against_pin: true`. Do not redraw or rebuild it without a dated decision-log entry.
 - **Act 1's sample is drawn and waiting on a person.** `data/annotation/` holds 800 blind items. The draw is made **once** (P25).
-- **`src/inference.py` still implements the original plan's methods**, not the accepted protocols. R07 and R08 replace them. Do not read anything it produces as a result.
+- **Inference remains partly scaffolded.** Primary/return-family reporting now uses the accepted controls and standardization; the old paired comparison, placebo and exploratory paths still require R08b/R08c and later repairs before empirical use.
 
 ## 2. What the study is
 
@@ -154,7 +156,7 @@ Six amendments to the two frozen protocols, made while no result of any kind exi
 | M5 | Independence narrowed to **label** independence; text exposure recorded as unknown for all three scorers; PhraseBank's number is "optimistically biased", not an upper bound |
 | M6 | The circular shift's domain is the retained analysis rows in session order, with midrank ties and a reported tie count |
 
-**M7 (HAC lag spacing, A09) is deliberately open.** The recommendation was to prespecify session-indexed HAC now; the user deferred it to **R07c**, which will measure the difference first. §4 of the inference protocol states the exposure this carries and the two constraints that bound it: R07c completes before any tone coefficient is estimated, and whichever convention becomes primary, the other is reported alongside.
+**M7 (HAC lag spacing, A09) — decided at R07c, 2026-09-10.** **Session-indexed is primary; retained-position is computed on every fit and reported alongside.** The choice was made on interpretive grounds — `L = 5` was prespecified as *one trading week*, and only that convention makes the sentence true — so it does not depend on any measured quantity, which is stricter than the deferral required. Measurement bounds the exposure rather than making the choice: identical with no gaps, **at most 0.33%** difference on the tone standard error at this corpus's anticipated gap structure, about 7% at 50% gaps. The comparison on the **real** sample is still outstanding (that sample does not exist) and is a required manifest entry at R13b. Full record: [`hac-spacing-decision.md`](hac-spacing-decision.md).
 
 ### R03a/R03b — deduplication lineage (A12, A11)
 
@@ -246,10 +248,10 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | ID | Task | Status | Notes |
 |---|---|---|---|
 | B16 | Volume naming; context-plot contract | ✅ | **R07a, 2026-09-10.** `log_turnover`→`log_volume`, `parkinson`→`rv_parkinson` across code, tests and docs; field contract in [`timing-contract.md`](timing-contract.md) §10; legacy-name and required-column guards; the context figure now requires `close_adj` instead of plotting a scalar NaN (P29 closed) |
-| B17 | Primary next-day regression on a fixture | 🟡 | `inference.predictive` exists and runs; not yet verified against the B02 eligibility rules |
+| B17 | Primary next-day regression on a fixture | ✅ | **R07b, 2026-09-10.** `inference.primary`/`PrimaryFit` fit the frozen specification on `inference.eligibility`'s rows; detrended volume control, tone standardized at fit time, four-reason exclusion ledger, full-calendar and per-observation adjacency guards. 24 tests in `tests/test_primary.py`. `predictive` remains for the secondary/exploratory paths R08 replaces |
 | B18 | Secondary family + paired scorer contrast | 🟡 | BH implemented; **BY sensitivity and the stacked `delta` contrast are not** |
 | B19 | Timing diagnostic corrected | ⬜ | Still block-resamples with replacement; B02 §9 specifies the circular shift |
-| B20 | Standardized effects, precision, null logic | 🟡 | `effect_size_bps` exists; standardization, the advance precision check and the three-conclusion rule are not implemented |
+| B20 | Standardized effects, precision, null logic | ✅ | **R07b + R07d, 2026-09-10.** Tone standardized at fit time so `beta` is per 1 SD and bps is `beta * 10,000` with no second rescaling (R07b); both advance half-widths recorded before any tone fit, and M2's two evidence dimensions with the boundary rule (R07d). The withdrawn three-conclusion rule is not implemented, by design |
 
 ### Phase E — mathematics and analysis
 
@@ -284,8 +286,11 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R03d | — | ✅ Verified rebuild; corpus replaced, `verified_against_pin: true` |
 | R06a | A11 | ✅ Blind sample drawn; user will label the 60-item pilot in `pilot_worksheet.csv` |
 | R06b | A11 | **Ready for implementation on synthetic fixtures.** Empirical use awaits human labels |
-| R07b–R07d | A07, A09 | ⬜ Primary fixture, HAC spacing, precision contract |
-| R08a–R08c | A08 | ⬜ Return families, paired scorer contrast, timing diagnostic |
+| R07b | A07 | ✅ Frozen primary specification: eligibility ledger, detrended volume control, fit-time standardization, one sample for fit/SD/bps scale |
+| R07c | A09 | ✅ HAC spacing: **M7 decided** — session-indexed primary, retained-position reported alongside; [`hac-spacing-decision.md`](hac-spacing-decision.md) |
+| R07d | A10 | ✅ Pointwise effects, two evidence dimensions, boundaries, advance widths and controls-only kappa; atomic manifest publication before tone estimation |
+| R08a | A08 | ✅ Exact primary + 14 secondary return family; BH/BY, validation and runner migration |
+| R08b–R08c | A08 | ⬜ Paired scorer contrast and timing diagnostic |
 | R09, R10 | A14, A13, A15 | ⬜ Documentation, preflight and pilot readiness |
 | R11, R12 | — | ⬜ Pilot and bounded scoring; the mathematical demonstration |
 | R13a, R13b | — | ⬜ Empirical validation and primary analysis |
@@ -302,8 +307,7 @@ Six findings are closed (A01–A06), A15 is partly closed, and eight remain open
 | README states findings as filled-in placeholders | `README.md` | B27 / R09 |
 | Report skeleton still uses original-plan language in places | `report/report.md` | B27 / R09 |
 | Placebo resamples blocks with replacement | `inference.permutation_pvalue` | B19 / R08c |
-| Primary model uses raw `log_volume`, not the protocol's 63-session detrend | `src/inference.py:113` | R07b |
-| `clears_costs` frames a coefficient as strategy profitability, which the inference protocol §11 forbids | `src/inference.py:225` | R07d / R08 |
+| Legacy exploratory/paired paths still use the old raw-tone `predictive` helper; primary and return-family paths now use `primary` | `predictive`, `attenuation_comparison`, `permutation_pvalue` | R08b / R08c |
 | Source filter matches by substring, so `notbenzinga.com` would pass | `src/data.py:94` | audit follow-up |
 | `config.AGG` is never read by `aggregate_daily` — an inert flag | `config.py:138` | audit follow-up |
 | `requirements.txt` versions are declared, not `pip freeze`d | | B28 / R10 |
@@ -360,17 +364,18 @@ Two corrections came out of it, both recorded: the earlier "0.05% malformed time
 
 ## 5a. The next increment
 
-**R07b**, then R07c → R07d → R08a–c.
+**R08b**, then R08c. R07a–R07d and R08a are implemented and integrated, and M7 is decided.
 
 The corpus track is closed and Act 1's sample is drawn, so what remains on the critical path with **no external dependency** is the inference track: seven fixture-based increments that gate every Act 2 result.
 
 | Increment | What it does | Why it is not optional |
 |---|---|---|
 | ~~R07a~~ | ✅ **Done 2026-09-10.** Renamed across code, tests and docs; field contract written; stale-artifact guards added | Names must match formulas (P22); obsolete consumers should fail tests |
-| **R07b** | Build the primary regression to the frozen specification | `inference.predictive` uses **raw** `log_volume`; the protocol specifies trailing-63-session-**detrended** log volume. That is a different model, not a renamed column (A07). Tone is also not standardized at fit time, and the bps conversion uses the wrong sample's SD |
-| **R07c** | Session-indexed vs retained-position HAC | Owns the **deferred M7 decision**. Measure both on synthetic gapped data and the real sample, then choose — before any tone coefficient is estimated |
-| **R07d** | Precision and the conclusion rule | Implements M1's two advance half-widths and M2's 2×2 rule |
-| **R08a–c** | Return families, paired scorer contrast, timing diagnostic | Replaces per-scorer BH with one primary + 14 secondary; replaces block resampling with the circular shift (A08) |
+| ~~R07b~~ | ✅ **Done 2026-09-10.** `inference.primary`/`PrimaryFit` on `eligibility`'s rows: detrended volume control, fit-time standardization, reconciling exclusion ledger, full-calendar guards | The old `predictive` fitted **raw** `log_volume` and rescaled the coefficient a second time (A07). R07d/R08a build on this interface |
+| ~~R07c~~ | ✅ **Done 2026-09-10.** **M7 decided:** session-indexed primary, retained-position always reported alongside; `hac_spacing_study.py`, [`hac-spacing-decision.md`](hac-spacing-decision.md) | Chosen on interpretive grounds before any tone coefficient existed. Real-sample comparison still due at R13b |
+| ~~R07d~~ | ✅ Precision and conclusion reporting integrated | Both advance widths, controls-only kappa, eligible-row record and atomic publication before any tone coefficient |
+| ~~R08a~~ | ✅ Return family correction implemented and runner migrated | One unadjusted primary + 14 secondary, BH/BY and exact membership checks |
+| **R08b–c** | Paired scorer contrast and timing diagnostic | Stacked covariance for the contrast; replace block resampling with the circular shift (A08) |
 
 **Do this before scoring, not after.** R11's bounded scoring pass is the expensive step; discovering afterwards that the panel contract was wrong means re-deriving everything downstream of it.
 

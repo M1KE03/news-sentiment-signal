@@ -76,16 +76,18 @@ Justification, and its limits. The one-day horizon is non-overlapping, so the le
 
 **Diagnostics, reported, not acted upon:** residual autocorrelation function to lag 20, and the regressor's own ACF. These describe whether `L = 5` was a reasonable prespecification. They do not license re-choosing `L` after the fact.
 
-**Open item — what `L = 5` counts (A09; deliberately left open 2026-09-09, M7).** The current implementation resets the index before computing HAC, so lag `ℓ` means `ℓ` **retained observations**, which can span more than `ℓ` calendar sessions wherever the analysis sample has gaps. The installed statsmodels `cov_hac_simple` documents an assumption of consecutive, equally spaced periods. Two conventions are available:
+**Settled — what `L = 5` counts (A09 / M7; decided 2026-09-10 at R07c).** `L = 5` was prespecified as **one trading week**, and whether the code delivers that depends on what a lag counts. The earlier implementation reset the index before computing HAC, so lag `ℓ` meant `ℓ` **retained observations**, which spans more than `ℓ` sessions wherever the analysis sample has gaps; the installed statsmodels `cov_hac_simple` documents an assumption of consecutive, equally spaced periods.
 
 | Convention | Lag `ℓ` means | Status |
 |---|---|---|
-| Retained-position | `ℓ` rows of the analysis sample | What the code does today |
-| Session-indexed | `ℓ` exchange sessions; pairs further apart in session time get zero weight even when within `ℓ` rows | Candidate |
+| Session-indexed | `ℓ` exchange sessions; pairs further apart in session time get zero weight even when within `ℓ` rows | **Primary** (`config.HAC_CONVENTION`) |
+| Retained-position | `ℓ` rows of the analysis sample | Computed and reported alongside on every fit; never substituted |
 
-**This choice is not made here.** It was proposed for prespecification and the user's decision was to **defer it to R07c**, which will measure the difference between the two conventions on synthetic gapped data and on the real analysis sample. Both conventions will be computed and both reported; the deferral is recorded in the [decision log](research-review-decision-log.md) with its date and reason.
+**The choice was made on interpretive grounds:** only the session-indexed convention makes the sentence "`L = 5` is one trading week" true. The retained-position convention answers a different question whose meaning shifts whenever the eligibility rules change, and it has no prespecified justification behind it.
 
-The exposure this deferral carries is stated plainly, because it is the kind of thing that is indefensible if discovered later: **the convention will be selected after its effect on the sample has been measured.** Two constraints bound that. The selection happens in R07c, which is infrastructure work that must complete **before** any tone coefficient is estimated, so no sentiment–return result can inform it. And whichever convention becomes primary, the other is reported alongside as a sensitivity, so the choice cannot hide a divergence. This corpus has one zero-news session (§3), so the two are expected to be close; if R07c finds otherwise, that itself is the finding and is reported as one.
+Both are implemented as one computation with one differing input, so any divergence is attributable to spacing alone; with no gaps they are numerically identical, verified against statsmodels' own HAC covariance. Measured on synthetic gapped data at this corpus's anticipated gap structure the two differ by **at most 0.33%** on the tone standard error — confirming this section's earlier expectation that they would be close. Divergence grows with the gap fraction and with genuine session-time residual dependence, reaching about 7% at 50% gaps, which is why the convention is worth fixing even though it is immaterial here. Full measurement, and the exposure the deferral carried, in [`hac-spacing-decision.md`](hac-spacing-decision.md).
+
+**Still outstanding:** the comparison on the **real** analysis sample, which does not yet exist. `PrimaryFit.spacing_comparison()` produces it for every fit and it is a required entry in the run manifest and the report at R13b.
 
 **Intervals are pointwise.** Every reported 95% interval is a pointwise interval for a single coefficient and is labelled with that word. A BH-adjusted p-value elsewhere in the report does not convert any interval into a simultaneous one (P10). If a joint statement across several horizons is ever required, it uses sup-t simultaneous bands simulated from the HAC covariance of the coefficient vector, and says so explicitly.
 
@@ -140,6 +142,8 @@ h2 ≈ 1.96 * [ sd(u) / (sqrt(n) * sd(v)) ] * kappa * 10,000
 ```
 
 where `sd(v) = sqrt(1 - R²)` from the second fit, and `kappa` is the HAC-to-OLS standard-error ratio at `L = 5` computed from the controls-only residuals `u`. Estimate 2 uses tone and it uses the outcome, but **never together**: no fit above involves `cov(z(S_t), r_(t+1))`, so the primary coefficient remains unseen. This is what makes the check legitimate rather than a first look at the answer.
+
+**Operational detail fixed at R07d, 2026-09-10, before empirical estimation.** The residual-based ratio above means the HAC standard error of the mean of `u`, divided by `sd(u, ddof=1)/sqrt(n)`. The HAC sandwich uses an intercept-only design, bandwidth 5, the named spacing convention and no small-sample correction. Both spacing conventions and their anticipated h2 values are recorded. This is a planning approximation to residual dependence, not the eventual tone coefficient's HAC/OLS ratio. `run_analysis` atomically publishes the advance record before calling any tone/outcome fit; publication failure stops estimation. Implementation and fixture evidence: [reporting contract](inference-reporting-contract.md).
 
 **What these numbers do and do not license.** They are recorded in the run manifest, with `n`, `sd(r)`, `R²`, `kappa` and the date, before any tone coefficient is estimated. The earlier claim — that a half-width above 5 bps means the study *cannot* deliver the "effect is small" conclusion "no matter what is estimated" — was **wrong in both directions and is withdrawn** (A10). Conditioning on `X_t` can reduce residual variance and narrow the realised interval below `h1`; collinearity between tone and the controls (`R²` above) widens it; and residual dependence at `L = 5` moves it either way. The realised HAC interval from §4 is the only quantity the conclusion rule below consults.
 
@@ -293,12 +297,12 @@ Identified in advance, each with the decision it drives. None is assumed to pass
 | Session-close, sample-edge and missing-row contract | B05, implemented B06–B09 |
 | Date-only fallback mapping, if the audit selects it | B09 |
 | Panel field renames in §10 | B16 |
-| Primary regression implementation and its fixture tests | B17 |
+| ~~Primary regression implementation and its fixture tests~~ | **Closed at R07b, 2026-09-10** — `inference.primary`, `eligibility`, `tests/test_primary.py` |
 | Secondary family correction and the stacked `delta` comparison | B18 |
 | Timing-diagnostic reimplementation | B19 |
 | Standardized effects, precision report, conclusion logic | B20 / R07d |
 | Attenuation derivation and simulation | B21 |
-| **HAC lag spacing: retained-position vs session-indexed (§4, M7)** | **R07c — deferred by decision 2026-09-09** |
+| ~~HAC lag spacing: retained-position vs session-indexed (§4, M7)~~ | **Closed at R07c, 2026-09-10** — session-indexed primary, both reported; [`hac-spacing-decision.md`](hac-spacing-decision.md). The comparison on the **real** sample remains due at R13b |
 
 ---
 
@@ -314,6 +318,8 @@ This document is a frozen specification, so every change to it is listed here wi
 | M2 | 5 | Two independent reported facts (`A` association, `B` smallness), a 2×2 naming rule, and an explicit non-strict boundary rule at 0.1 bps reporting precision | Three conclusion categories that overlapped: `[1, 3]` bps satisfied two of them with no rule to choose |
 | M3 | 6 | The 14-test secondary family is closed and contains return tests only; Act 1 contrasts cannot join it | An implicit delegation from the validation protocol of classifier contrasts into a family that never enumerated them |
 | M6 | 9 | Shift domain fixed to the retained analysis rows in session order; the position-vs-session distinction stated; the calendar alternative recorded as considered and rejected; midrank ties with a reported tie count | An unspecified domain and no tie convention |
-| M7 | 4 | **Deferred, not decided.** Both HAC spacing conventions documented; selection and measurement moved to R07c, with the deferral's exposure stated | Silence about what lag `ℓ` counts when the sample has gaps |
+| M7 | 4 | **Decided 2026-09-10 at R07c.** Session-indexed is primary — the only convention under which `L = 5` is the one trading week it was prespecified as; retained-position computed and reported alongside on every fit. Chosen on interpretive grounds, with the measured difference (at most 0.33% at this corpus's anticipated gap structure, 0 with no gaps) bounding the exposure rather than making the choice | Silence about what lag `ℓ` counts when the sample has gaps |
 
 M4 and M5 amend the [validation protocol](validation-protocol.md) and are recorded there.
+
+**2026-09-10 — R07d implementation detail for M1.** Before any empirical tone coefficient was estimated, section 5 fixed the previously unspecified residual-based SE in kappa: the controls-only residual mean's HAC SE divided by its sample-SD mean SE. Both lag-spacing versions are retained. This clarifies the planning calculation; it does not change the controls, estimand, bandwidth, SESOI or conclusion rule. The runner now publishes the advance record before tone estimation. Synthetic arithmetic and publication-failure checks are recorded in the [reporting contract](inference-reporting-contract.md).

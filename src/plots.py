@@ -136,12 +136,12 @@ def figure2_lag_family(
                 textcoords="offset points",
                 fontsize=8,
             )
-    axes[0].set_ylabel(r"$\beta$ on $S_t$  (log return per unit sentiment)")
+    axes[0].set_ylabel(r"$\beta$ on $z(S_t)$  (log return per SD of tone)")
     # P24: "next-day nothing" asserted the primary result, and "same-day
     # association" asserts one that RQ2 suppression means will not be estimated
     # at all on this corpus.
     fig.suptitle(
-        "Coefficients on $S_t$ by horizon, with 95% pointwise Newey-West intervals",
+        "Coefficients on $z(S_t)$ by horizon, with 95% pointwise Newey-West intervals",
         y=1.02,
     )
     fig.tight_layout()

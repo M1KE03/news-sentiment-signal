@@ -83,12 +83,10 @@ def test_lm_handles_empty_and_punctuation_only_input(lm):
     assert lm.score(["", "!!! ???"]).tolist() == [0.0, 0.0]
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("name", ["vader", "finbert"])
 def test_optional_scorers_range_and_determinism(name):
-    try:
-        scorer = {"vader": scoring.VaderScorer, "finbert": scoring.FinbertScorer}[name]()
-    except Exception as exc:  # dependency or weights absent on a fresh clone
-        pytest.skip(f"{name} unavailable: {type(exc).__name__}: {exc}")
+    scorer = {"vader": scoring.VaderScorer, "finbert": scoring.FinbertScorer}[name]()
     first = scorer.score(SPOT_CHECK)
     assert first.shape == (len(SPOT_CHECK),)
     assert np.all(first >= -1.0) and np.all(first <= 1.0)
@@ -214,10 +212,7 @@ def test_predictions_for_requires_a_band_for_a_lexicon(lm):
 
 @pytest.fixture(scope="module")
 def finbert():
-    try:
-        return scoring.FinbertScorer()
-    except Exception as exc:
-        pytest.skip(f"FinBERT unavailable: {type(exc).__name__}: {exc}")
+    return scoring.FinbertScorer()
 
 
 def test_finbert_label_order_matches_the_pinned_one(finbert):

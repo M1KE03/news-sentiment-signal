@@ -2,9 +2,51 @@
 
 Based on the [project audit](project-audit-2026-09-09.md). This repair sequence sits within the existing B01–B28 roadmap. Initially prepared for review; the user subsequently requested execution in bounded increments.
 
-## Execution checkpoint — 2026-09-09
+## Execution checkpoint — 2026-09-10
 
-### Dependency update — 2026-09-10
+### Latest: R07d and R08a implemented and integrated
+
+The user requested a few tasks after R07c. Its prerequisite code was absent at the start, then appeared in the shared workspace during this task. R07d/R08a now use those `eligibility`, `primary` and `hac_sandwich` interfaces. [Reporting contract](inference-reporting-contract.md) records the APIs, compatibility changes and verification. R07b/R07c's own completion and M7 decision records are tracked by that concurrent work.
+
+R08a replaces per-scorer BH with one unadjusted primary and the exact 14-test secondary return family, with BH/BY, membership validation and BY-based secondary claim decisions. Return fits use the full panel and sample-specific standardization. R07d adds pointwise bps intervals, both evidence dimensions, boundary disclosures, two advance widths and a controls-only residual-mean HAC ratio. The runner atomically writes the advance record before fitting any tone coefficient. **333 tests passed, 0 skipped**, including 38 reporting/family checks. No empirical result was computed. Next: R08b and R08c after the prerequisite decision record is reconciled.
+
+### R07b and R07c — the primary specification, and what `L = 5` counts
+
+**R01a–R01d, R02, R03a–R03d, R04a, R04b, R05, R06a, R07a, R07b and R07c complete — 16 of 30.**
+
+**R07b — the frozen primary specification.** A07's mismatch was not a naming problem. `predictive` fitted **raw** `log_volume` where the protocol specifies the trailing-63-session-**detrended** series, did not standardize tone at fit time, and the basis-point conversion then multiplied by an `sd(S)` from a different sample — rescaling a coefficient the fit had already scaled. `inference.primary` implements the frozen model instead; `predictive` stays in place for the secondary and exploratory paths R08 replaces, and is now documented as not being the primary.
+
+Three properties are held by test rather than by intention. The design is exactly `{z(S_t), r_t, RV_t, lv_t}`. The fit, the standard deviation used to standardize, and the basis-point scale all come from the **same** retained rows — so replacing `S` with `2S` leaves `beta`, its standard error and the whole interval unchanged, which is the invariance the old conversion broke. And the exclusion ledger reconciles: every dropped session is charged to the first of four ordered reasons, the counts partition the excluded rows exactly, and per-reason counts ignoring precedence are reported alongside so overlaps stay visible. The 62-session detrend warm-up is charged to `missing_control`, never confused with `zero_news`.
+
+Two guards protect the timing contract at the point of use. `_require_full_calendar_panel` refuses a panel whose rows are no longer the complete calendar — detected without needing the calendar, because on a complete frame `ret_lead{h}` is exactly `ret.shift(-h)`, and removing any interior row breaks that. This catches the most likely notebook mistake: passing `analysis_sample`'s output, where row `i+1` is no longer the next session. `_assert_lead_adjacency` then restates the invariant per retained observation, as protocol Section 3 asks.
+
+**R07c — M7 decided.** Full argument and measurements: [`hac-spacing-decision.md`](hac-spacing-decision.md).
+
+`L = 5` was prespecified as *one trading week*, and only one of the two available conventions makes that sentence true. `hac_sandwich` takes the session index as an argument, so session-indexed and retained-position are the same computation with one differing input, and any divergence is attributable to spacing alone. Verified rather than asserted: with `arange(n)` both reproduce statsmodels' own HAC covariance to 1e-12 on a contiguous sample; on a gapped index the result matches lag products written out independently as a double loop over every pair; and when every retained session is more than `L` apart the estimator collapses exactly to the White sandwich, which is the property that makes the bandwidth mean what it says.
+
+Measured on synthetic gapped data (`hac_spacing_study.py`, true tone coefficient zero by construction): **identical with no gaps**, **at most 0.33%** difference on the tone standard error at this corpus's anticipated gap structure, growing to about 7% at 50% gaps with genuine session-time residual dependence. The protocol's expectation that the two would be close is confirmed.
+
+**The selection was made on interpretive grounds, not on the measured outcome** — the argument would be unchanged if every measured number were different. That is a stricter standard than the deferral required, and it was made before any tone coefficient existed. Retained-position is computed on every fit and reported alongside, never substituted. What is **not** settled: the same comparison on the **real** analysis sample, which does not exist yet; `PrimaryFit.spacing_comparison()` produces it, and it is a required manifest entry at R13b.
+
+### Previous checkpoint: R07a — panel field names now match their formulas
+
+**R07a complete (latest). R01a–R01d, R02, R03a–R03d, R04a, R04b, R05, R06a and R07a complete — 14 of 30.** 258 tests pass, 0 skip.
+
+Two panel columns claimed more than their formulas delivered (P22, A07). `log_turnover` is `log(share volume)` — no share-count denominator exists anywhere in this pipeline, so it was never a turnover ratio. `parkinson` was described as volatility when it is a high-low **range** estimator of variance, blind to the intraday path and to the overnight gap.
+
+**The mapping was written before the rename**, as the increment required: [`timing-contract.md`](timing-contract.md) §10 now records every panel column, its formula, where it is built, and what it may not be read as.
+
+Renamed across `src/data.py`, `src/align.py`, `src/inference.py`, `src/plots.py`, `run_all.py` and four test modules: `log_turnover` → `log_volume`, `parkinson` → `rv_parkinson`, with the derived `_lag1`, `_lead1` and `_detrended` columns following their stems, and `build_panel`'s `turnover_window` parameter → `volume_window`.
+
+**The rename's own hazard was the reason for two new guards.** `build_panel` NaN-fills any declared panel column its inputs did not supply. A market frame or saved panel written before this increment would therefore have produced an entirely empty `log_volume`, and every downstream regression would have fitted on a shorter sample and reported it as a sample size — not as an error. `align.reject_legacy_columns` refuses either input by name and says what each stale column became; `align.assert_panel_schema` does the same for a panel read from disk, and `run_all.py --skip-panel` now calls it. `REQUIRED_MARKET_COLUMNS` likewise raises instead of NaN-filling a missing control.
+
+**P29 closed.** The context figure used `df["close_adj"] if "close_adj" in df else np.nan`, which would plot a scalar against a date series. It now requires the column and says which artifact is wrong when it is absent.
+
+Verification: 12 new tests in `tests/test_panel_fields.py` check `log_volume` and `rv_parkinson` against fixture bars arithmetic rather than against themselves, check the detrend window is trailing-only and leaves the first `window - 1` sessions missing, and check that the figure draws the panel's actual prices. Both guards were mutation-checked — disabling either makes four tests fail.
+
+**This increment renamed; it did not remodel.** `inference.predictive` still uses **raw** `log_volume` where the protocol specifies the trailing-63-session-detrended series, and tone is still not standardized at fit time. That is a different model, not a different column name, and it is R07b.
+
+### Dependency update — 2026-09-10 (dictionary and pilot worksheet)
 
 The user requested resolution of the “Blocked by” items and volunteered to label the pilot. Acquired and validated the official LM 1993–2025 CSV (March 2026), pinned release and SHA-256 in `config.py`; see [dictionary provenance](lm-dictionary-provenance.md). Created a blank [60-item pilot worksheet](../data/annotation/pilot_worksheet.csv) and [instructions](../data/annotation/PILOT_README.md) from the frozen sample. No sample redraw, model labels or empirical results.
 
@@ -16,7 +58,9 @@ The user requested resolution of the “Blocked by” items and volunteered to l
 
 This changes dependency status, not the count of completed research increments.
 
-**R06a complete (latest). R01a–R01d, R02, R03a–R03d, R04a, R04b, R05 and R06a complete — 13 of 30.**
+### Previous checkpoint: 2026-09-09
+
+**R06a complete. R01a–R01d, R02, R03a–R03d, R04a, R04b, R05 and R06a complete — 13 of 30 at that point.**
 
 ### R06a — the blind annotation sample is drawn
 
@@ -413,11 +457,11 @@ At the end of R01a, default-path validation, input-content identity and subset i
 | ✅ R05 — protocol amendments | `docs/inference-protocol.md`, `docs/validation-protocol.md`, decision log | **Done 2026-09-09.** M1 precision approximation, M2 overlapping conclusions and boundaries, M3 classifier multiplicity, M4 group accuracy uncertainty, M5 training-overlap wording, M6 shift domain. **M7 (HAC spacing, A09) deferred to R07c by decision** | A09/A10; no real results required |
 | ✅ R06a — blind sample preparation | **Done 2026-09-09.** New `src/annotate.py`, `tests/test_validation.py` (30 tests), `data/annotation/` artifacts drawn and on disk | 800 drawn (200/600) across 10 strata; 799 unwindowed article groups, none spanning both parts; blind export is id+text only with a forbidden-column guard and a separate order seed; `load_split` re-checks the invariant; 60-item pilot and 160-item second-annotator subset identified; provenance leaves annotator fields blank by design | B11; R03/R05; no labels required to build tooling |
 | R06b — label ingestion and paired metrics | `src/validate.py`, validation tests: validate labels/provenance, fit calibration-only thresholds, paired group bootstrap | Known paired fixtures; identical predictions yield zero difference; all resamples preserve groups/pairing; unusable items counted | B15; R05/R06a; empirical use waits for human labels |
-| R07a — panel fields | Concrete B16 field mapping, then bounded rename of volume/range fields and consumers | Formulas match names; adjusted prices reach context figure; obsolete consumers fail tests | A07; agreed panel contract |
-| R07b — primary fixture | `src/inference.py`, inference tests: explicit eligibility, detrended-volume control, standardization and counts | Hand-checkable design matrix/target; identical retained rows determine fit, SD and bps scale; exclusion ledger reconciles | B17/B20; R04/R05/R07a |
-| R07c — uncertainty spacing | Specify session-indexed HAC behavior and implement after review; diagnostics keep time meaning. **Also owns the deferred M7 decision**: measure retained-position vs session-indexed HAC on synthetic gapped data and on the real sample, then select the primary convention and report the other alongside | Contiguous case agrees with library calculation; gapped fixture agrees with independently calculated lag products; both conventions computed and the choice recorded with its measured difference **before any tone coefficient is estimated** | B17/B20 extension; A09; R05/M7 |
-| R07d — precision/results contract | Advance planning estimate, pointwise CI, two evidence dimensions or approved conclusion precedence | Null, small-nonzero, wide and exact-margin fixture intervals classified consistently; no profitability field | B20; R05/R07b–c |
-| R08a — return families | Assemble one primary and the exact 14-test secondary family with BH/BY | Membership/size asserted; primary excluded from adjustment; correction matches reference values | B18; R07 |
+| ✅ R07a — panel fields | **Done 2026-09-10.** Field contract written to [`timing-contract.md`](timing-contract.md) §10; `log_turnover`→`log_volume`, `parkinson`→`rv_parkinson` (and derived lag/lead/detrend columns) across `src/`, `tests/`, `run_all.py`; `volume_window` parameter; legacy-name and required-market-column guards; context figure requires `close_adj` | 12 new tests (`tests/test_panel_fields.py`), 258 passing 0 skipped. Formulas checked against fixture bars; detrend verified trailing-only; guards mutation-checked (removing either makes 4 tests fail). **Renames only** — `predictive` still fits raw `log_volume`, which is R07b | A07; agreed panel contract |
+| ✅ R07b — primary fixture | **Done 2026-09-10.** `inference.eligibility` (four-reason ledger), `inference.primary`/`PrimaryFit`, `bps_interval`; `_require_full_calendar_panel` and `_assert_lead_adjacency` | 24 tests (`tests/test_primary.py`). Design is `z(S), ret, rv_parkinson, log_volume_detrended`; tone standardized at fit time on the retained rows, so doubling `S` leaves `beta`, its SE and the bps interval unchanged; bps is `beta * 10,000` with no second rescaling; the ledger's first-reason counts partition the excluded rows exactly. Mutation-checked: reverting the control to raw `log_volume` fails 4 tests, standardizing on the whole panel fails 2 | B17/B20; R04/R05/R07a |
+| ✅ R07c — uncertainty spacing | **Done 2026-09-10.** `inference.hac_sandwich` takes the session index as an argument, so both conventions are one computation with one differing input; `fit_hac`/`HACFit`; `config.HAC_CONVENTION = "session_indexed"`; measurement in `hac_spacing_study.py`; **M7 decided** in [`hac-spacing-decision.md`](hac-spacing-decision.md) | 13 tests (`tests/test_hac_spacing.py`). Contiguous case matches statsmodels to 1e-12 under **both** conventions; gapped case matches an independent all-pairs double loop; rows spaced more than `L` sessions apart collapse to the White sandwich. Measured: identical with no gaps, **at most 0.33%** SE difference at this corpus's anticipated gap structure, growing to about 7% at 50% gaps. Chosen on interpretive grounds — only session-indexed makes `L = 5` the one trading week it was prespecified as — **before any tone coefficient existed**. Real-sample comparison remains due at R13b | B17/B20 extension; A09; R05/M7 |
+| ✅ R07d — precision/results contract | Pointwise intervals, both evidence dimensions, boundaries, two advance widths and controls-only residual-mean kappa; atomic advance-manifest publication before any tone fit | Synthetic arithmetic and gapped covariance references, identical eligible rows and publication-failure sequencing verified; no profitability field. See [contract](inference-reporting-contract.md) | B20; integrates R07b–c interfaces |
+| ✅ R08a — return families | One unadjusted primary and exact 14-test secondary family with BH/BY; runner migrated | Membership/size asserted; primary excluded; full reference corrections and order invariance checked. No empirical fits | B18; R07 remains prerequisite for real estimates |
 | R08b — paired scorer effect | Implement standardized common-sample comparison with stacked HAC covariance | Identical scorers yield zero contrast; rescaling a score leaves standardized comparison unchanged; covariance checked on a controlled fixture | B18; R07 |
 | R08c — timing diagnostic | Replace block-resampling p-value path with specified circular shifts and percentile output | Each shift uses each value once; coefficient/rank semantics checked; no p-value label in outputs | B19; R05/R07 |
 | R09 — honest current documentation | Reconcile handover/current-plan status, decision-log tail, README/notebook/report framing and neutral plot titles | No stale “B01 next”, unsupported `--all`, predetermined finding, wrong timing rule or completed-output claim | B27 preliminary pass; A14; can be done early |
