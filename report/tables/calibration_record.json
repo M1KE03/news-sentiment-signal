@@ -220,5 +220,33 @@
     "split": "2505743700ea85ba7081c0161d689e1482acc1e6ef0beb7d4a0bda5efa1ce0c0"
   },
   "n_calibration": 200,
-  "n_unusable": 2
+  "n_unusable": 2,
+  "threshold_determinacy": {
+    "lm": {
+      "distinct_score_values": 3,
+      "values": [
+        -1.0,
+        0.0,
+        1.0
+      ],
+      "share_exactly_zero": 0.7828,
+      "tied_bands": 1600,
+      "tied_share_of_grid": 0.482,
+      "distinct_classifications_among_tied_bands": 1,
+      "note": "The reported band is one of 1,600 grid pairs achieving the best macro-F1, so the band itself is arbitrary. All 1,600 produce an IDENTICAL classification, so the arbitrariness does not reach the predictions: LM on headline text is effectively sign(score)."
+    },
+    "vader": {
+      "distinct_score_values": 54,
+      "share_exactly_zero": 0.5404,
+      "tied_bands": 3,
+      "tied_share_of_grid": 0.001,
+      "distinct_classifications_among_tied_bands": 1,
+      "note": "A genuinely narrow plateau; the band is determined and all tied bands classify identically."
+    }
+  },
+  "calibration_macro_f1_on_fitting_set": {
+    "lm": 0.477,
+    "vader": 0.4206,
+    "note": "Optimistic by construction - these are on the data the thresholds were fitted to. NOT an Act 1 result."
+  }
 }

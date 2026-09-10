@@ -267,4 +267,8 @@ ANNOTATION_GROUP_OVERLAP = 0.90
 
 # Filled only after the human calibration labels have been validated. Record
 # the calibration provenance and thresholds before scoring evaluation text.
-VALIDATION_THRESHOLDS = None  # later: {"lm": [lo, hi], "vader": [lo, hi]}
+# Frozen 2026-09-10 from the 200 CALIBRATION items only, never the evaluation
+# set. See report/tables/calibration_record.json, which also records that the
+# LM band is one of 1,600 grid pairs tied at the best macro-F1 -- all of which
+# classify identically, because LM takes only three values on headline text.
+VALIDATION_THRESHOLDS = {"lm": [-1.0, 0.0], "vader": [-0.125, 0.2250000000000001]}
