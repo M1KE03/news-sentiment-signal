@@ -1,32 +1,55 @@
 # Pinned per D16: `pip install -r requirements.txt && python run_all.py` from a
 # clean clone must reproduce every table and figure.
 #
-# Versions below are the ones the project was developed against. Re-pin with
-# `pip freeze` once Stage 0 fixes the environment, and do not float them after.
+# Re-pinned 2026-09-10 (R10, audit A13). The previous pins were versions the
+# project had never been run against: eleven of fourteen differed from what was
+# installed, and three declared packages were not installed at all. A green test
+# suite therefore established behaviour in some environment, not in the pinned
+# one. Every version below is the one the 388-test suite actually executes
+# against on Python 3.12.10.
+#
+# `python preflight.py` reports declared against installed at any time, and
+# `python preflight.py --freeze` prints these lines from the live environment.
+# Re-pin deliberately; do not float them.
 
 # --- core ---------------------------------------------------------------
-numpy==2.3.3
-pandas==2.3.2
-pyarrow==21.0.0
+numpy==2.5.3
+pandas==3.0.5                # 3.x string dtypes: see the chunksize schema bug (B09b)
+pyarrow==25.0.1
 
 # --- statistics ---------------------------------------------------------
-scipy==1.16.1
-statsmodels==0.14.5          # HAC covariance, BH-FDR, exact McNemar
-scikit-learn==1.7.2          # stratified split, macro-F1, confusion matrices
+scipy==1.18.1
+statsmodels==0.15.0          # HAC covariance reference, BH/BY, exact McNemar
+scikit-learn==1.9.0          # stratified split, macro-F1, confusion matrices
 
 # --- scorers (D7) -------------------------------------------------------
-torch==2.8.0                 # CPU wheel is sufficient; no training here
-transformers==4.56.1         # ProsusAI/finbert
+# torch carries a local version segment and comes from the CPU wheel index:
+#   pip install torch==2.14.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0+cpu            # CPU wheel is sufficient; nothing is trained here
+transformers==5.16.1         # ProsusAI/finbert, pinned by revision in config.py
 vaderSentiment==3.3.2
 
 # --- data ---------------------------------------------------------------
-yfinance==0.2.66             # SPY OHLCV + ^VIX
-pandas-market-calendars==5.1.1   # NYSE sessions; D6 depends on this being right
-datasets==4.0.0              # Financial PhraseBank (Malo et al. 2014)
+pandas-market-calendars==5.4.0   # NYSE sessions; D6 depends on this being right
 
-# --- figures and notebooks ---------------------------------------------
-matplotlib==3.10.6
-jupyterlab==4.4.7
+# --- figures ------------------------------------------------------------
+matplotlib==3.11.1
 
 # --- tests --------------------------------------------------------------
-pytest==8.4.2
+pytest==9.1.1
+
+# --- NOT INSTALLED IN THE VERIFIED ENVIRONMENT --------------------------
+# Declared because a documented command needs them, and listed separately
+# because nothing here has been executed against them. Do not read a passing
+# test run as evidence about any of these.
+#
+#   yfinance==0.2.66       `data/raw/download.py --market` (SPY, ^VIX).
+#                          Absent here, so the market artifact cannot be built
+#                          in this environment; `preflight.py` reports it.
+#   datasets==4.0.0        Financial PhraseBank only, which is supplementary
+#                          (validation protocol section 2) and separately blocked:
+#                          4.0.0 removed dataset scripts and `trust_remote_code`
+#                          (B10/P30). Not on the critical path.
+#   jupyterlab==4.4.7      Running the notebooks interactively. The notebooks
+#                          import from `src/` and hold no analysis logic, so
+#                          nothing reproducible depends on this.

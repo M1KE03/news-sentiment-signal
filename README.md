@@ -11,9 +11,9 @@ finding a signal.
 
 > **Status: infrastructure, no results.** The protocols are written and frozen, the corpus is
 > assembled and censused, and the timing, caching, acquisition, panel and inference defects found by
-> the [2026-09-09 audit](docs/project-audit-2026-09-09.md) are being repaired in sequence — 22 of 29
+> the [2026-09-09 audit](docs/project-audit-2026-09-09.md) are being repaired in sequence — 23 of 29
 > increments done. **No text has been scored, no labels collected, no panel built, no model fitted,
-> and no empirical result of any kind exists.** 388 tests pass, 0 skip.
+> and no empirical result of any kind exists.** 418 tests pass, 0 skip.
 >
 > Current state lives in [`docs/handover.md`](docs/handover.md); the live plan is the
 > [repair sequence](docs/audit-implementation-plan-2026-09-09.md).
@@ -66,14 +66,28 @@ be reported as such.
 
 ```bash
 pip install -r requirements.txt
+python preflight.py --stage scoring      # what is installed, and which artifacts exist
 python data/raw/download.py --assemble   # stream the pinned 5.7 GB FNSPID file, verify its digest
 python data/raw/download.py --dedup     # raw -> analysis corpus, with lineage
 python data/raw/download.py --census    # coverage, duplication, concentration
 python data/raw/download.py --market    # SPY/^VIX; LM acquisition is documented below
-python rescore.py                   # once: the FinBERT pass, cached by headline hash
-python run_all.py                   # minutes, no GPU: panel -> every table and figure
-pytest                              # the firewall
+python rescore.py --dry-run              # scope and checkpoint location, nothing scored
+python rescore.py                        # once: the FinBERT pass, cached by headline hash
+python run_all.py                        # minutes, no GPU: panel -> every table and figure
+pytest                                   # the firewall
 ```
+
+Every command above refuses to start when its inputs are absent, and says which
+artifact is missing and what produces it. `python preflight.py --stage analysis`
+answers that question without running anything; `--strict` exits non-zero, which
+is the form for a check before an expensive pass.
+
+**Bounded scoring is bounded by whole sessions.** `rescore.py --sessions 50`
+scores fifty calendar days entire. There is deliberately no headline-count
+limit: a partial day is not a smaller sample but a different measurement, since
+`S_t` is a within-day mean and `d_t` a within-day standard deviation. If the
+full pass is too expensive the rule is to shorten the *window* (D4) and record
+it.
 
 `rescore.py` is deliberately **not** part of `run_all.py`. FinBERT inference over the full headline
 set is the only expensive step in the project; scores are cached keyed on headline hash, so the
@@ -103,13 +117,15 @@ firewall must be checkable before there is any data to be wrong about.
 ```
 config.py            every locked decision (D1–D16) from the plan; imported everywhere
 run_all.py           panel -> Tables 2-5, Figures 2-4
-rescore.py           the one-off FinBERT pass (--time-only times it first)
+preflight.py         what is installed, what artifacts exist, what produces them
+rescore.py           the one-off FinBERT pass (--time-only, --dry-run, --sessions N)
 src/data.py          news load + mandatory source filter, dedup with lineage, SPY/^VIX, NYSE calendar
 src/scoring.py       LM | VADER | FinBERT, behind one Scorer protocol; hash-keyed cache
 src/align.py         both mappers, daily aggregation, the panel, all lags and leads, score gate
 src/validate.py      Act 1: label ingestion, calibration-only thresholds, paired group bootstrap
 src/inference.py     eligibility ledger, the frozen primary spec, session-indexed HAC,
                      the 14-test secondary family (BH/BY), paired scorer contrast, timing shift
+src/preflight.py     the dependency inventory and the artifact registry
 src/plots.py         one function per numbered figure; no plotting code anywhere else
 tests/               the firewall + scorer range/determinism/cache checks
 notebooks/           01 audit · 02 validation · 03 signal · 04 volume+vol · 05 robustness

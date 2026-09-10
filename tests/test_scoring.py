@@ -1,9 +1,16 @@
 """Scorer range and determinism checks (Stage 1).
 
 The LM tests run on a small hand-built word list, so they need neither the
-Loughran-McDonald CSV nor a network. The VADER and FinBERT tests skip cleanly
-when the optional dependency or the model weights are not present, so `pytest`
-is green on a fresh clone before Stage 1 has been run.
+Loughran-McDonald CSV nor a network.
+
+**These no longer skip (R10, audit A13).** The FinBERT fixtures once caught a
+broad exception and skipped, so a genuine code or label-contract defect was
+indistinguishable from "the model is unavailable" -- and the label-order
+assertion that later failed on its first real run had been reported as passing
+for weeks. Tests that need the model are marked `integration` by
+`tests/conftest.py` and **error normally** when it is missing; deselect them
+with `-m "not integration"` when that is what you want, so the choice is made
+by the person running the suite rather than silently by the suite itself.
 """
 
 from __future__ import annotations

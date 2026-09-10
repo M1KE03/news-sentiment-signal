@@ -24,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 import config
-from src import align, data, inference, plots, scoring
+from src import align, data, inference, plots, preflight, scoring
 
 TABLES = config.REPORT / "tables"
 
@@ -281,11 +281,24 @@ def run_analysis(panel: pd.DataFrame) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--skip-preflight", action="store_true",
+                    help="run without checking prerequisites (not recommended)")
     ap.add_argument("--skip-panel", action="store_true",
                     help="reuse processed/daily_panel.parquet instead of rebuilding it")
     args = ap.parse_args()
 
     _check_locked_decisions()
+
+    if not args.skip_preflight:
+        # A15: readiness stopped at three config constants, so a missing corpus
+        # or an unscored cache surfaced as a traceback from inside a loader
+        # rather than as a statement of what to run first. Reported as a plain
+        # message, like the locked-decision guard beside it -- a stack trace
+        # here says "this program broke" when the truth is "run that first".
+        try:
+            preflight.require_artifacts("analysis")
+        except preflight.PreflightError as missing:
+            raise SystemExit(str(missing)) from None
 
     if args.skip_panel:
         panel = pd.read_parquet(_require(config.PANEL_PARQUET, "drop --skip-panel"))

@@ -25,7 +25,7 @@ The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-0
 1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
 2. **§5a** names the next increment and why it is next.
 3. **§6** is what you cannot do without a human.
-4. Run `pytest` before touching anything: **388 passing, 0 skipped**, is the baseline.
+4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **418 passing, 0 skipped**, is the baseline.
 
 Three facts that will save you an hour:
 
@@ -223,6 +223,23 @@ Four rows of the carried-defects table were already fixed and still listed as op
 
 **Two code defects survive R09 and are not documentation problems.** The source filter matches by substring, so `notbenzinga.com` would pass the mandatory domain filter; and `config.AGG` is an inert flag that `aggregate_daily` never reads. Both are re-verified open and left for the audit follow-up, because R09 changes prose, not behaviour.
 
+### R10 — preflight and pilot readiness (A13, A15)
+
+**A13 was quantified by the tool built to close it.** On its first run `preflight.py` reported that of fourteen declared requirements, **one matched what was installed, eleven differed, and three were absent**. Every pin was a version the project had never executed against, so a green suite established behaviour in *some* environment rather than the pinned one. `requirements.txt` is now pinned to the environment the suite actually runs in, with `yfinance`, `datasets` and `jupyterlab` — genuinely not installed — in a separate block that says nothing has been run against them.
+
+The repair is a command and a guard rather than a promise to stay in step: `python preflight.py` reports declared-vs-installed on demand, `--freeze` prints correct pin lines from the live environment, and a standing test fails when the file stops describing the environment. Restoring the original `numpy==2.3.3` makes it fail, so it is the assertion that would have caught A13.
+
+**Newly visible:** `yfinance` is absent, so `data/raw/download.py --market` cannot run here and the market artifact cannot be built in this environment. Previously that surfaced only as an ImportError partway through a command.
+
+**A15's readiness half.** `require_artifacts(stage)` runs before anything expensive in `run_all.py` and `rescore.py`, naming the artifact, its expected path, and the command that produces it — as a plain message, because a stack trace says "this program broke" when the truth is "run that first". The registry separates what a **command** builds from what a **person** must supply. Output staging and the completion manifest remain R14's.
+
+**Bounding is by whole session, never by headline count.** `rescore.py --sessions N` takes the first `N` calendar days entire. A partial day is not a smaller sample — it is a different measurement, because `S_t` is a within-day mean and `d_t` a within-day standard deviation. Also added: `--dry-run` (scope and checkpoint location, nothing scored) and `--checkpoint-every`.
+
+**Skips were already narrow; the docstring promising them was not.** `tests/test_scoring.py` still said the model tests "skip cleanly" when the model is absent — the behaviour A13 named, and the reason a failing label-order assertion read as passing for weeks. It now records what conftest actually does: marked `integration`, errors normally, deselected explicitly with `-m "not integration"`.
+
+**A file was overwritten and then merged back.** A root `preflight.py` already existed at HEAD, written by concurrent work on this same increment, and it was overwritten before being read — my error. It was recovered from git and **merged rather than discarded**, because it carried the substantive half: parquet schema validation, the LM dictionary SHA-256 check against `config.LM_DICT_SHA256`, complete-score-cache verification with scorer-identity comparison, optional model loading, and a JSON report R14's run manifest will want. What this pass added on top is the artifact registry with `produced_by`/`external`, the `require_artifacts`/`require_packages` gates wired into both runners, the dependency status taxonomy, `--freeze`, and 30 tests where there had been none. The two stage vocabularies were reconciled onto the one already committed — `unit`, `pilot`, `scoring`, `analysis`, `validation` — so the project has one set of stage names, and a test asserts it.
+
+
 ## 4. Checklist against the implementation plan
 
 Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigger)
@@ -306,8 +323,10 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R08a | A08 | ✅ Exact primary + 14 secondary return family; BH/BY, validation and runner migration |
 | R08b | A08 | ✅ Stacked `delta` contrast on the common sample; collinearity reported, never acted on; `attenuation_comparison`/`horse_race` deleted |
 | R08c | A08 | ✅ Circular-shift timing diagnostic as a percentile; `permutation_pvalue` deleted. **A08 closed** |
-| R09, R10 | A14, A13, A15 | ⬜ Documentation, preflight and pilot readiness |
+| R09 | A14 | ✅ Documentation reconciled against the code; withdrawn procedures and a predetermined finding removed |
+| R10 | A13, A15 | ✅ Preflight inventory and artifact gates; `requirements.txt` re-pinned to the tested environment; bounded whole-session scoring |
 | R11, R12 | — | ⬜ Pilot and bounded scoring; the mathematical demonstration |
+| — | — | **8 of 15 findings' repairs remain**: R11–R15. A13 and A14 closed at R10/R09 |
 | R13a, R13b | — | ⬜ Empirical validation and primary analysis |
 | R14, R15 | — | ⬜ Reproduction and presentation |
 
@@ -329,7 +348,8 @@ Verified line by line at R09 (2026-09-10). Four rows had already been fixed in e
 | RQ4 exploratory specs still use old-plan conventions; every primary, return-family, paired and timing path now uses `primary`/`eligibility` | `volatility_spec`, `volume_spec` (and the `predictive` helper they lean on) | optional RQ4 increment |
 | Source filter matches by **substring**, so a host like `notbenzinga.com` would pass | `src/data.py:112` — `any(d in h for d in domains)`; re-verified open at R09 | audit follow-up |
 | `config.AGG` is never read — `aggregate_daily` hardcodes `.mean()`, so changing the flag changes nothing | `config.py:161`, `src/align.py:467`; re-verified open at R09 | audit follow-up |
-| `requirements.txt` versions are declared, not `pip freeze`d | | B28 / R10 |
+| ~~`requirements.txt` versions are declared, not `pip freeze`d~~ | **Closed at R10** — re-pinned to the tested environment; `python preflight.py` reports drift and a standing test fails on it | — |
+| `test_checkpoints.py::test_hard_stop_around_commit_and_resumption[after_text]` fails intermittently **under heavy machine load** | Kills a real subprocess at a commit boundary; a race in the test's own timing, not in the checkpoint contract. Measured 2026-09-10: 2 observed failures during concurrent work, then **0 in 30 isolated, 12 whole-file and 10 full-suite runs**. Nothing in R08–R10 touches `src/scoring.py` | unassigned |
 
 **One carried defect was closed by measurement rather than by code.** A test
 asserted that FinBERT would not call "Costs fell sharply in the third quarter"
@@ -472,7 +492,7 @@ src/validate.py   Act 1: label ingestion, calibration-only thresholds, group boo
 src/inference.py  eligibility ledger, frozen primary spec, session-indexed HAC,
                   14-test secondary family (BH/BY), paired contrast, timing shift
 src/plots.py      one function per figure; titles name their axes, not conclusions
-tests/            388 passing, 0 skipped: alignment · audit · data · market ·
+tests/            418 passing, 0 skipped: alignment · audit · data · market ·
                   panel_fields · primary · hac_spacing · scorer_contrast ·
                   timing_diagnostic · inference · inference_reporting · scoring ·
                   checkpoints · acquisition · validation · paired_validation
