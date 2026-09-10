@@ -85,7 +85,15 @@ The split is stratified on the §3 strata and seeded. It is stored as a file —
 
 ## 5. Annotation rubric
 
-Version `v1`, dated 2026-09-09. The rubric is versioned because a mid-annotation change to it is a protocol change and must be logged with the date and the number of items already labelled.
+Version **`v3`, dated 2026-09-10**, superseding `v2` of the same day and `v1` of 2026-09-09. The rubric is versioned because a mid-annotation change to it is a protocol change and must be logged with the date and the number of items already labelled.
+
+> **Why v2 exists, and what it cost.** The 60-item pilot was labelled under v1 and did exactly what a pilot is for: it found that v1 does not decide most of what it meets. **34 of 60 items were flagged `hard`, including 19 of the 20 `neutral` labels** — so `neutral` was operating as the indecision bin rule 9's flag exists to detect, rather than as a real category. The annotator's notes named the recurring causes, and each is a headline *type* that v1's ten rules never addressed: list and screen articles, legal actions, personnel changes, capital actions, regulatory milestones, and promotional self-description.
+>
+> Rules 11–16 below are written to **decide** those types, not to describe them. Rule 5 is also clarified to cover reported results and not only guidance.
+>
+> **v3, same day, before any v2 label was written.** v2's rules were written from plausibility. Checked against event-study evidence, **two of them were wrong**: rule 13 treated a forced departure as negative when the literature finds the market often reads it as positive, and rule 15 treated any "approval" as positive, which is wrong for an **acquirer** in a deal clearance. Rule 14 was right on average but is now marked with the dispersion behind it. The evidence used, and the strict limits on how far it may be pushed, are in §6b.
+>
+> **Items already labelled when v2 was adopted: 60, all of them calibration items.** No evaluation item had been seen. The 60 are re-labelled under v2; because calibration only fits two threshold cut-points and produces no reported metric, the annotator's prior exposure to them cannot reach any macro-F1 number. That exposure is recorded as a deviation in `data/annotation/provenance_pilot.json`.
 
 ### The question the annotator answers
 
@@ -110,12 +118,43 @@ These exist so that two annotators resolve the same hard cases the same way. The
 2. **Direction attaches to the subject, not the word.** *"Costs fell sharply"* is `positive` — a fall in costs is good. *"Provisions rose"* is `negative`. Score what moved and in which direction, never the sentiment of the noun in isolation.
 3. **Reported price moves are `neutral`.** *"Shares fall 4%"* describes the market's own reaction; it is not news about the company. This is a deliberate rule with a cost — it will disagree with all three scorers — and it exists because the alternative makes the label set partly a function of returns, which is the outcome variable in Act 2.
 4. **Analyst actions take the analyst's direction.** *"Upgraded to buy"* → `positive`; *"price target cut"* → `negative`.
-5. **Guidance takes the guidance's direction**, judged against the expectation named in the headline if one is named, otherwise against the prior level.
+5. **Guidance and reported results take their own direction**, judged against the expectation named in the headline if one is named, **otherwise against the prior period**. *"Reports Q4 EPS €(0.16) vs €(0.19) in Same Qtr. Last Year"* is `positive`: no consensus is named, so the comparison is against the prior year, and the loss narrowed. A result with no comparison of any kind is `neutral` (v2 clarification).
 6. **Mixed headlines take the dominant clause.** If the two halves are genuinely balanced — *"revenue beats, margins miss"* — label `neutral` and tick the `mixed` flag.
 7. **Questions and speculation are `neutral`** unless the headline asserts the answer. *"Is X in trouble?"* → `neutral`. *"X is in trouble, says regulator"* → `negative`.
 8. **Macro headlines take the direction for equities**, not for the indicator. *"Jobless claims fall"* → `positive` for equities.
 9. **Do not resolve ambiguity by guessing.** If rules 1–8 do not decide it, the answer is `neutral` plus the `hard` flag. `neutral` is a real category here, not a bin for indecision — but the flag lets §6 measure how often it was used that way.
 10. **One headline, one pass.** Do not revisit earlier labels after seeing later ones, and do not re-read a batch to make it consistent.
+
+*Rules 11–16 are new in v2. Each exists because the pilot showed v1 leaving that type undecided. They are written to produce an answer — if one of them applies, the `hard` flag should normally be `0`.*
+
+11. **Lists, screens and roundups are `neutral` unless the headline itself asserts a direction.** *"Top 5 Small-Cap NASDAQ Stocks In The Consumer Goods Sector"* is an enumeration — `neutral`. *"3 Stocks Set to Spring"* asserts they will rise — `positive`. *"Stocks to Avoid This Quarter"* — `negative`. A report that a fund bought or sold a name (*"Among Shumway Buys"*) is a position disclosure, not company news: `neutral`, on the same reasoning as rule 3.
+
+12. **Legal actions: `negative` for the party facing one, `neutral` for the party bringing it.** Judge the headline's grammatical subject (rule 2). *"Microsoft Takes Legal Action Against Barnes & Noble"* — subject is Microsoft, which is bringing it: `neutral`. *"SEC Charges X With Fraud"* — `negative`. A **settlement or dismissal** is `positive` for the party that was facing the action.
+
+    *This rule is empirical, not intuitive, and the distinction matters because the obvious intuition — "suing someone is good news for the plaintiff" — is wrong.* Event-study work on patent litigation finds defendants suffer material negative cumulative abnormal returns around the filing date, while **plaintiffs' returns are statistically indistinguishable from zero**: the value of the claim is already in the plaintiff's price by the time it is filed. The asymmetry the rule encodes is the asymmetry in the data. It was checked after the pilot raised the question, and the check is recorded here because a rule invented to make an annotator's life easier is worth nothing if it is wrong.
+
+13. **Personnel changes are `neutral` unless the headline states an adverse *cause*; a forced departure is not itself negative.** Appointments, retirements and board changes carry no direction on their own — *"Announces Appointment of New CFO"* is `neutral`. Where the headline names a cause, label the **cause**: *"CFO Resigns Amid Accounting Probe"* is `negative` because the probe is the news, not because someone left.
+
+    *Corrected in v3 after checking the evidence — the intuitive reading is backwards.* The turnover literature finds the market frequently reacts **positively** to a forced departure, reading it as the removal of an underperformer, and **negatively** when a well-performing executive is pushed out; voluntary resignations show little effect and age-related departures slightly negative. Recent work finds the sign mixed even for involuntary turnover. So a bare *"CEO Steps Down"* or *"Board Ousts CEO"* with no stated cause is **not** negative — it is genuinely two-sided, and the answer is `neutral` with `hard = 1`.
+
+14. **Capital actions take the direction of their effect on existing holders.** A new **equity offering** dilutes: `negative`. A **buyback** or **dividend increase**: `positive`. A **dividend cut or suspension**: `negative`. A **debt raise or refinancing** is `neutral` unless the headline names distress or a favourable rate. *"Announces 75M Share Offering"* — `negative`.
+
+    *These match the evidence, but with very different reliability, and the difference is worth knowing.* Buyback and dividend-change reactions are strongly and consistently signed. The equity-offering reaction is negative **on average** — the standard information-asymmetry result — but **roughly 30–40% of offerings draw a positive reaction**. So `negative` is the right default for a bare offering announcement, and an offering whose headline names a favourable use of proceeds (funding a specific acquisition, repaying debt at a stated saving) is one to mark `hard = 1`.
+
+15. **Regulatory and deal milestones — and these are two different rules, because the evidence separates them.**
+
+    **(a) Product and operating approvals** take the direction of the decision, for the party whose product it is. Approval, clearance or authorisation: `positive`. Rejection, refusal or a demand for more data: `negative`. A filing or an announced review with no decision: `neutral`. *"FDA Requests Additional Data"* — `negative`.
+
+    **(b) Mergers and acquisitions depend entirely on which side the headline's subject is on, and the asymmetry is one of the largest in the literature.** Target shareholders earn cumulative abnormal returns of roughly **+15% to +30%** on announcement. Acquirer returns are **mixed to slightly negative** and are not reliably signed — stock-financed deals in particular signal acquirer overvaluation. So:
+
+    - subject is the **target** (being acquired, receiving a bid): `positive`
+    - subject is the **acquirer** (buying, bidding): `neutral`
+    - a **terminated or collapsed** deal reverses this: `negative` for the target, `neutral` for the acquirer
+    - a **regulatory clearance of a deal** carries the same asymmetry as the deal itself, not a direction of its own
+
+    *v3 correction.* v2 gave *"EU Allows Marriott's Acquisition of Starwood"* as `positive` on the reasoning that a hurdle had been cleared. That is wrong for the headline's subject: Marriott is the **acquirer**, so it is `neutral`. The same event is `positive` for Starwood. Treating "approval" as uniformly good conflated a product decision with a deal milestone.
+
+16. **Promotional self-description with no verifiable outcome is `neutral`.** Company-worded PR trades on adjectives that assert nothing checkable — "productive", "strategic", "exciting", "strong momentum". *"Announces Productive Meeting With FDA"* is `neutral`: no outcome is stated. If the headline names a concrete outcome, take that outcome's direction and ignore the adjective.
 
 ### Blindness requirements
 
@@ -162,6 +201,55 @@ data/annotation/
 ```
 
 These are small and are **tracked in Git** — unlike everything under `data/raw|interim|processed`. The labels are the study's own experimental data and the most expensive artifact in the project to reproduce.
+
+## 6a. Ambiguity is measured, not eliminated
+
+The 60-item pilot flagged **34 of 60 `hard`**, including 19 of 20 neutrals. The first reading was that rubric v1 was defective. Part of that is true and rules 11–16 fix it — personnel changes, screens and promotional PR were simply uncovered, and an uncovered case is a gap, not an ambiguity.
+
+But the rest is not a defect in any rubric, and the comparison that settles it is with the field's canonical dataset. **Financial PhraseBank reaches 100% annotator agreement on only 2,264 of its 4,846 sentences — 46.7% — despite using 5 to 8 finance-literate annotators per sentence.** Over half its items had at least one dissenter. Its published releases are therefore *stratified by agreement* (≥50%, ≥66%, ≥75%, 100%), which is an admission, built into the artifact, that a single consensus label does not exist for much of the corpus.
+
+Two consequences for this study.
+
+**The `hard` flag is this design's substitute for multi-annotator disagreement.** With one annotator there is no agreement rate to compute, so the annotator's own declaration that the rubric did not decide an item is the only ambiguity signal available. It is therefore a first-class output, not a diagnostic: a 57% rate is a measurement about the task, and reporting it as though it were a defect would misdescribe the corpus.
+
+**Act 1 metrics are reported on two sets, always both** (v2, 2026-09-10):
+
+1. the **full** evaluation set, and
+2. the **confident subset**, `hard = 0`.
+
+Both carry their `n`. This mirrors PhraseBank's agreement stratification and answers a question one number cannot: whether a macro-F1 difference between scorers comes from headlines whose direction is clear, or from the ones a careful human could not resolve. A difference that exists only on the ambiguous items is a different finding from one that holds on the clear ones, and the report says which.
+
+Neither set is the "real" one and neither may be selected after seeing which flatters a scorer. Both are prespecified here, before any label was fitted or any metric computed.
+
+**A confound the two-set split does not fix, and which the report states.** FinBERT was fine-tuned on PhraseBank, whose annotation instruction is the investor-perspective framing this rubric also uses — *would this news move the price?* — whereas Loughran–McDonald and VADER are lexicons scoring textual valence. Any ground truth written in the investor-perspective framing is therefore closer to FinBERT's training *objective* than to what the lexicons measure, independently of whether FinBERT has seen the text. This is not fixable by choosing a different framing, because textual-valence framing would favour the lexicons symmetrically. It is a property of comparing models built to different targets on one label set, and it belongs in the results section beside the macro-F1 contrast, not only in the limitations.
+
+## 6b. How far event-study evidence may be pushed, and where it stops
+
+Rules 12–15 are grounded in published event-study evidence rather than in what a rule felt reasonable. That was worth doing — it caught two rules that were **backwards** — and the evidence is recorded so a reader can check it:
+
+| Event type | Evidence | Rule |
+|---|---|---|
+| Patent litigation | defendant: material negative CARs at filing. **Plaintiff: indistinguishable from zero** — the claim's value is already priced | 12 |
+| Equity offering | negative on average (information asymmetry), but **30–40% positive** | 14 |
+| Buyback, dividend change | strongly and consistently signed | 14 |
+| Forced executive departure | **often positive** (removal of an underperformer); negative when a performing executive is ousted; voluntary ≈ 0; recent evidence mixed | 13 |
+| M&A | **target +15% to +30%**; acquirer mixed to slightly negative, not reliably signed | 15(b) |
+
+### Where it stops, and why the stronger version is refused
+
+A natural next step was proposed and is **declined**: weight or override the annotator's reading by the historical average reaction for the event type, so that an item reading neutral is labelled negative because that category averages negative. Four reasons, and the first is decisive.
+
+**1. It would make the ground truth a function of returns, which §5 rule 3 already forbids.** That rule sends reported price moves to `neutral` precisely *"because the alternative makes the label set partly a function of returns, which is the outcome variable in Act 2."* Labelling every category by its historical return is the same move applied to the whole rubric rather than to one rule. Act 2 regresses tone on returns; a ground truth built from returns puts the outcome variable on both sides of the study.
+
+**2. It would change what Act 1 measures.** The estimand is classification quality: does the scorer read *this headline* correctly? If the label is the category's base rate, a scorer that recognised event categories and ignored the words would score well. That is a different and lesser skill, and the macro-F1 contrast would no longer be about reading.
+
+**3. The event-study evidence is about the wrong quantity.** These are *abnormal* returns for an *individual* stock over a two- or three-day window. Act 2's outcome is the **next session's SPY return** — market-level, raw, one day. A headline worth −2% abnormal to one mid-cap says almost nothing about SPY. The mapping does not transfer, and borrowing the sign would import a precision the design cannot support.
+
+**4. The averages conceal the variance that matters.** Offerings are negative on average and positive 30–40% of the time. Forced turnover flips sign on whether the departing executive was underperforming — which the headline does not say. Assigning a confident label from an average would put a definite answer on items that are close to coin flips, which is the opposite of what §6a's `hard` flag exists to record.
+
+**What the evidence is used for instead.** It fixes rules that were factually wrong about *direction*, and it identifies categories whose base rate is near even — offerings with a stated favourable use of proceeds, bare forced departures, acquirer-side deal news — where the rubric now directs the annotator to `hard = 1` rather than to a confident guess. Evidence corrects the **rules**; it does not become the **labels**.
+
+**What is available later, and costs nothing now.** Event category can be assigned to each headline *mechanically* after labelling, from the text, without any annotator effort and without touching the ground truth. Act 1 metrics can then be reported **broken down by event category**, which answers a genuinely useful question — do the scorers fail systematically on particular event types? — while leaving the labels, the estimand and Act 2 untouched. Recorded here as available; not part of the primary contrast.
 
 ## 7. Metrics and uncertainty
 
@@ -255,7 +343,9 @@ Only under §2's fallback, and then:
 
 ## 12. Amendment record
 
-This document is a frozen specification, so every change to it is listed here with its date, its reason and what it replaced. Amendments correct defects in the specification; the estimand, the primary contrast, the sampling design, the calibration/evaluation separation and the rubric are untouched.
+This document is a frozen specification, so every change to it is listed here with its date, its reason and what it replaced.
+
+**The estimand, the primary contrast, the sampling design and the calibration/evaluation separation are untouched by every amendment below.** The **rubric is not** — it moved from `v1` to `v2` on 2026-09-10, which is a protocol change and is recorded as one, with the number of items already labelled and why their prior exposure cannot reach a reported metric. An earlier version of this paragraph listed the rubric among the untouched items; that was true when written and is corrected here rather than quietly dropped.
 
 **2026-09-09 — R05, from [project audit](project-audit-2026-09-09.md) A10.** No labels had been collected and no evaluation had been run at the time of amendment. That is why these corrections are legitimate rather than post hoc.
 
@@ -264,5 +354,16 @@ This document is a frozen specification, so every change to it is listed here wi
 | M3 | 7 | The two secondary contrasts are specified here as descriptive pointwise intervals with no correction, with the reasoning fixed in advance | A delegation to "the secondary family defined in the inference protocol", which enumerates 14 return tests and never contained a classifier contrast |
 | M4 | 7 | Paired **group** bootstrap on the accuracy difference becomes primary; exact McNemar demoted to supplementary, with group counts, group-size distribution and an explicit validity condition printed beside it | Exact item-level McNemar presented without noting that §4's own grouping rule contradicts its independence assumption |
 | M5 | 2 | Independence narrowed to **label** independence, with text exposure recorded as unknown for all three scorers symmetrically; PhraseBank's number described as optimistically biased rather than as a bound | "Verifiable independence from the checkpoints", and "an upper bound of unknown tightness" |
+
+**2026-09-10 — rubric v2 and §6a, prompted by the 60-item pilot.** 60 items had been labelled, **all of them calibration**; no evaluation item had been seen and no metric had been computed. That is what makes these legitimate rather than post hoc, and it is verified against `split_assignment.csv` rather than asserted.
+
+| ID | § | Change | Replaced |
+|---|---|---|---|
+| M8 | 5 | Rubric **v1 → v2**. Rules 11–16 added for headline types v1 never addressed — lists and screens, legal actions, personnel changes, capital actions, regulatory milestones, promotional PR — each written to *decide* its type. Rule 5 clarified to cover reported results, judged against the prior period when no consensus is named. Rule 12 grounded in event-study evidence rather than intuition | Ten rules that left the pilot's annotator flagging **34 of 60 items `hard`**, including 19 of 20 `neutral` labels, so `neutral` was absorbing indecision rather than acting as a category |
+| M9 | 6a | The `hard` flag becomes a **first-class output**, and Act 1 metrics are reported on **two sets, always both**: the full evaluation set and the `hard = 0` confident subset, each with its `n`. Neither is primary; neither may be selected after seeing which flatters a scorer | Nothing — §6 measured annotator *agreement* between two people and had no treatment for a single annotator's declared ambiguity, so the `hard` flag was collected and never used |
+
+**Why M9 rather than more rules.** The pilot's `hard` rate was first read as a defect. Part of it was, and M8 fixes that part. The rest is intrinsic to the task: **Financial PhraseBank reaches 100% annotator agreement on only 2,264 of its 4,846 sentences (46.7%)** despite 5–8 finance-literate annotators each, and publishes its releases *stratified by agreement level* — an admission built into the artifact that no single consensus label exists for much of the corpus. A single annotator produces no agreement rate, so the `hard` flag is this design's only ambiguity signal, and stratified reporting is the same answer PhraseBank arrived at by a different route.
+
+**A confound M8 and M9 do not fix, recorded in §6a and due in the results section.** FinBERT was fine-tuned on PhraseBank, whose annotation instruction is the investor-perspective framing this rubric also uses; Loughran–McDonald and VADER are lexicons scoring textual valence. Any ground truth in this framing sits closer to FinBERT's training *objective* than to what the lexicons measure, independently of text exposure, which §2 treats separately. Reframing does not help — textual-valence framing would favour the lexicons symmetrically.
 
 M1, M2, M6 and the deferred M7 amend the [inference protocol](inference-protocol.md) and are recorded there.

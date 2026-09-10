@@ -1,12 +1,12 @@
 {
   "manifest_version": 1,
-  "completed_at_utc": "2026-09-10T13:31:42.363568+00:00",
+  "completed_at_utc": "2026-09-10T17:41:23.090337+00:00",
   "status": "complete",
   "environment": {
     "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
     "platform": "Windows-11-10.0.26200-SP0",
     "executable": "C:\\Users\\micha\\Documents\\sentiment signal\\.venv\\Scripts\\python.exe",
-    "git_commit": "e67320bdb2374ca8b4d48b23e7f0cc61a25ac379",
+    "git_commit": "cc779be044d51fb400f92ecbdb3ecdd4a68d06ab",
     "git_dirty": true,
     "packages": {
       "matplotlib": "3.11.1",
@@ -162,6 +162,30 @@
       "bytes": 4584
     },
     {
+      "kind": "tables",
+      "file": "table6_bandwidth_sensitivity.csv",
+      "sha256": "e26108f20f2b0917e44475351d61644db18696aa3c8a9ff37d07ab6b96fb0d64",
+      "bytes": 1257
+    },
+    {
+      "kind": "tables",
+      "file": "table6b_dispersion_floor.csv",
+      "sha256": "351e47450481a0892f6457122b8fedea7f355828883191c86943c6ac37a028e8",
+      "bytes": 266
+    },
+    {
+      "kind": "tables",
+      "file": "table6c_subperiod_split.csv",
+      "sha256": "c658f96e47784b7b1abc06cc35cf52c2cc2be4f0fe3155ea4413fb073080747a",
+      "bytes": 582
+    },
+    {
+      "kind": "tables",
+      "file": "table6d_residual_acf.csv",
+      "sha256": "d0b7fb2c9de4238f5b50d9a933e762765f67b9fa3166993057254ed1e48416f9",
+      "bytes": 1462
+    },
+    {
       "kind": "figures",
       "file": "figure2_lag_family.png",
       "sha256": "1fd2ad730dcdb2774d0e2593bd054b1334664914d69df67e462d84aececd474f",
@@ -194,8 +218,8 @@
     {
       "kind": "tables",
       "file": "run_summary.json",
-      "sha256": "5de4fa4cfdaf9bb43a3f3f889a0adc16a00581a2afb4c10f9ff20757ee8d9e2f",
-      "bytes": 4407
+      "sha256": "e3c5fa4d3a851d500373e67f06a09791c173a87b0bb412f718ac8a7c9c5bcd25",
+      "bytes": 5191
     }
   ],
   "removed_superseded_outputs": [],
@@ -228,6 +252,20 @@
       "rv_parkinson",
       "log_volume_detrended"
     ]
+  },
+  "robustness": {
+    "primary_conclusion": "No association detected, and precise enough to exclude effects beyond +/-5 bps",
+    "primary_boundary_case": true,
+    "conclusions_across_sensitivities": [
+      "No association detected, and precise enough to exclude effects beyond +/-5 bps"
+    ],
+    "any_sensitivity_changes_the_conclusion": false,
+    "n_sensitivities_that_are_boundary_cases": 5,
+    "n_sensitivities": 7,
+    "bandwidth_se_min_bps": 1.5141629872314235,
+    "bandwidth_se_max_bps": 1.6841334329846147,
+    "halves_intervals_overlap": false,
+    "note": "Sensitivities enter no correction family and cannot supply a result the primary specification did not (protocol section 6). Divergence is reported as fragility, never resolved by selection."
   },
   "coverage": {
     "n_sessions": 2516,

@@ -24,7 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 import config
-from src import align, data, inference, plots, preflight, publish, scoring
+from src import align, data, inference, plots, preflight, publish, robustness, scoring
 
 TABLES = config.REPORT / "tables"
 
@@ -249,6 +249,33 @@ def run_analysis(panel: pd.DataFrame, run: publish.StagedRun) -> dict:
               f"{r['wald_chi2']:.2f}, p = {r['p']:.4f}, BH q = {r['bh_q']:.4f}, "
               f"n = {int(r['nobs'])}")
 
+    # --- Table 6: robustness (protocol section 4 sensitivity set, section 7) ------
+    # Sensitivities enter no correction family and cannot supply a result the
+    # primary specification did not. Divergence is reported as fragility, never
+    # resolved by adopting whichever choice is most convenient.
+    bands = robustness.bandwidth_sensitivity(panel)
+    bands.to_csv(run.path_for("tables", "table6_bandwidth_sensitivity.csv"), index=False)
+    robustness.dispersion_floor_sensitivity(panel).to_csv(
+        run.path_for("tables", "table6b_dispersion_floor.csv"), index=False)
+    robustness.subperiod_split(panel).to_csv(
+        run.path_for("tables", "table6c_subperiod_split.csv"), index=False)
+    robustness.residual_autocorrelation(panel).to_csv(
+        run.path_for("tables", "table6d_residual_acf.csv"), index=False)
+
+    robustness_summary = robustness.summarise(panel)
+    for _, r in bands.iterrows():
+        flag = "  <- PRIMARY" if r["is_primary"] else ""
+        print(f"bandwidth L={r['bandwidth']:<14} {r['bps_per_sd']:+.2f} bps "
+              f"[{r['bps_lo95']:+.2f}, {r['bps_hi95']:+.2f}]  "
+              f"inside +/-{config.SESOI_BPS:g}: {str(r['inside_sesoi']):<5}{flag}")
+    if robustness_summary["any_sensitivity_changes_the_conclusion"]:
+        print("\n  ROBUSTNESS WARNING: the conclusion is not invariant across the "
+              "prespecified sensitivity set.")
+        for c in robustness_summary["conclusions_across_sensitivities"]:
+            print(f"    - {c}")
+        print("  Protocol section 4: divergence is reported as a finding about the "
+              "inference's fragility, not resolved by picking one.")
+
     # --- figures ----------------------------------------------------------
     for name, figure in (
         ("figure2_lag_family", plots.figure2_lag_family(families, contemp, timing)),
@@ -261,6 +288,7 @@ def run_analysis(panel: pd.DataFrame, run: publish.StagedRun) -> dict:
 
     summary = {
         "advance_precision": "advance_precision.json",
+        "robustness": robustness_summary,
         "coverage": coverage,
         "timing_diagnostic": timing,
         "corr_finbert_lm": corr,
@@ -275,6 +303,7 @@ def run_analysis(panel: pd.DataFrame, run: publish.StagedRun) -> dict:
     run.path_for("tables", "run_summary.json").write_text(
         json.dumps(summary, indent=2, default=str))
     run.extra["eligibility"] = eligibility_ledger
+    run.extra["robustness"] = robustness_summary
     run.extra["coverage"] = coverage
     return summary
 

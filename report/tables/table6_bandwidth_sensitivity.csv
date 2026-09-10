@@ -1,0 +1,6 @@
+bandwidth,maxlags,n,bps_per_sd,bps_lo95,bps_hi95,se_bps,p,is_primary,plug_in_equals_primary,association_detected,inside_sesoi,boundary_case,conclusion
+0 (HC only),0,2453,-1.7441258019965586,-5.024054654321147,1.53580305032803,1.6734638382114413,0.29730738789442324,False,False,False,True,True,"No association detected, and precise enough to exclude effects beyond +/-5 bps"
+1,1,2453,-1.7441258019965586,-5.044966675806204,1.5567150718130869,1.6841334329846147,0.3003784777394004,False,False,False,True,True,"No association detected, and precise enough to exclude effects beyond +/-5 bps"
+5 (primary),5,2453,-1.7441258019965586,-4.903076318115115,1.4148247141219976,1.6117390630827684,0.2791907399255106,True,False,False,True,True,"No association detected, and precise enough to exclude effects beyond +/-5 bps"
+10,10,2453,-1.7441258019965586,-4.711830723693731,1.2235791197006132,1.5141629872314235,0.2493726297058506,False,False,False,True,False,"No association detected, and precise enough to exclude effects beyond +/-5 bps"
+plug-in (8),8,2453,-1.7441258019965586,-4.773233237021819,1.2849816330287023,1.54549137582041,0.2590982247084358,False,False,False,True,False,"No association detected, and precise enough to exclude effects beyond +/-5 bps"

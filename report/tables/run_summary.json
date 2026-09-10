@@ -1,5 +1,19 @@
 {
   "advance_precision": "advance_precision.json",
+  "robustness": {
+    "primary_conclusion": "No association detected, and precise enough to exclude effects beyond +/-5 bps",
+    "primary_boundary_case": true,
+    "conclusions_across_sensitivities": [
+      "No association detected, and precise enough to exclude effects beyond +/-5 bps"
+    ],
+    "any_sensitivity_changes_the_conclusion": false,
+    "n_sensitivities_that_are_boundary_cases": 5,
+    "n_sensitivities": 7,
+    "bandwidth_se_min_bps": 1.5141629872314235,
+    "bandwidth_se_max_bps": 1.6841334329846147,
+    "halves_intervals_overlap": false,
+    "note": "Sensitivities enter no correction family and cannot supply a result the primary specification did not (protocol section 6). Divergence is reported as fragility, never resolved by selection."
+  },
   "coverage": {
     "n_sessions": 2516,
     "n_zero_news_days": 1,

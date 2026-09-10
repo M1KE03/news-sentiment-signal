@@ -143,12 +143,15 @@ def pilot_paths():
     return Path(_c.ANNOTATION_DIR)
 
 
-def test_the_pilot_provenance_template_exists_and_is_rejected_until_filled():
+LIVE_PROVENANCE = "provenance_v2.json"
+
+
+def test_the_live_provenance_template_exists_and_is_rejected_until_filled():
     """The refusal is the feature. `validate_annotation_provenance` never
     manufactures a human declaration, so the shipped template must fail."""
     import json as _json
 
-    path = pilot_paths() / "provenance_pilot.json"
+    path = pilot_paths() / LIVE_PROVENANCE
     assert path.exists(), "the ingestion code reads JSON; a template must be provided"
     record = _json.loads(path.read_text(encoding="utf-8"))
     with pytest.raises(ValueError):
@@ -159,17 +162,58 @@ def test_the_template_carries_the_verifiable_facts_already():
     """Only human declarations are left blank; facts about the draw are filled."""
     import hashlib
     import json as _json
-    import config as _c
 
-    record = _json.loads((pilot_paths() / "provenance_pilot.json").read_text(encoding="utf-8"))
-    assert record["rubric_version"] == "v1"
+    record = _json.loads((pilot_paths() / LIVE_PROVENANCE).read_text(encoding="utf-8"))
+    assert record["rubric_version"] == "v3"
     assert record["presentation_order_seed"] == 20260831
-    assert record["instrument"] == "pilot_worksheet.csv"
     actual = hashlib.sha256(Path("docs/validation-protocol.md").read_bytes()).hexdigest()
     assert record["rubric_sha256"] == actual, (
         "the recorded rubric hash no longer matches the protocol file; a "
         "mid-annotation rubric change is a protocol change and must be logged"
     )
+
+
+def test_the_rubric_change_is_recorded_as_a_deviation():
+    """A rubric version bump mid-annotation is a protocol change (section 5)."""
+    import json as _json
+
+    record = _json.loads((pilot_paths() / LIVE_PROVENANCE).read_text(encoding="utf-8"))
+    joined = " ".join(record["deviations"]).lower()
+    assert "v1" in joined and "v2" in joined, "the version change must be recorded"
+    assert "60" in joined, "the number of items already labelled must be recorded"
+    assert "calibration" in joined, (
+        "that the pre-labelled items are calibration-only is why prior exposure "
+        "cannot reach a reported metric, and must be stated"
+    )
+
+
+def test_the_superseded_pilot_template_says_so():
+    """A stale rubric hash left unmarked is how a wrong provenance record survives."""
+    import json as _json
+
+    record = _json.loads((pilot_paths() / "provenance_pilot.json").read_text(encoding="utf-8"))
+    assert "superseded" in record.get("rubric_version", "").lower()
+    assert "_superseded" in record
+
+
+def test_the_v2_worksheets_are_blank_and_preserve_presentation_order():
+    """Carrying v1 labels forward would make the v2 pass a review of v1."""
+    blind = pd.read_csv(pilot_paths() / "to_label_primary.csv", dtype=str,
+                        keep_default_na=False)
+    split = pd.read_csv(pilot_paths() / "split_assignment.csv", dtype=str)
+    part = split.set_index("headline_id")["part"]
+
+    for name, size in (("calibration", 200), ("evaluation", 600)):
+        sheet = pd.read_csv(pilot_paths() / f"worksheet_v2_{name}.csv", dtype=str,
+                            keep_default_na=False)
+        assert len(sheet) == size
+        assert (sheet["label"] == "").all(), "answer cells must ship blank"
+        assert (sheet["notes"] == "").all()
+        expected = blind[blind["headline_id"].map(part) == name]["headline_id"].tolist()
+        assert sheet["headline_id"].tolist() == expected, (
+            "the worksheet must be a filter of the shuffled export in its recorded "
+            "order -- not a redraw and not a re-sort"
+        )
 
 
 def test_the_filled_template_passes_and_ingests_the_real_pilot_worksheet():

@@ -1,0 +1,27 @@
+{
+  "_comment": "Machine-readable provenance for the rubric v2 annotation pass. src/validate.load_annotations reads THIS file. Fields already filled are facts about the draw and the instrument, verifiable from the repository. Fields set to null or 'TO BE COMPLETED' are human declarations: validate_annotation_provenance rejects this file until a person replaces every one of them, and it is meant to be rejected until then.",
+  "rubric_version": "v3",
+  "rubric_sha256": "388516e6d273435527ead78a2efe463f8a5121a78553468ecd5075ebf27b6df9",
+  "instrument": "worksheet_v2_calibration.csv + worksheet_v2_evaluation.csv",
+  "presentation_order_seed": 20260831,
+  "annotator_role": "TO BE COMPLETED - a role, never a name. e.g. 'project analyst'",
+  "label_source": null,
+  "_label_source": "Set to \"human\" only if a person produced every label.",
+  "blind_to_model_outputs": null,
+  "_blind_to_model_outputs": "true only if you did not consult any model output while labelling. Scores exist in interim/scores.parquet from 2026-09-10, so this asserts you did not open the cache.",
+  "independent_of_analyst": null,
+  "_independent_of_analyst": "true if the annotator is not the person running the analysis.",
+  "scores_existed": null,
+  "_scores_existed": "true. The full scoring pass completed 2026-09-10, before labelling.",
+  "sessions": [],
+  "_sessions": "One entry per sitting: {\"start\": \"...Z\", \"end\": \"...Z\"}, with time zones.",
+  "deviations": [
+    "Rubric v1 -> v2 adopted 2026-09-10 after the 60-item pilot flagged 34/60 hard (19 of 20 neutrals). Rules 11-16 added; rule 5 clarified. Items labelled when v2 was adopted: 60, all calibration, none evaluation.",
+    "The 60 pilot items are re-labelled under v2 with prior exposure to them. They are calibration only, so they fit threshold cut-points and reach no reported metric. v1 labels were not carried into the v2 worksheet.",
+    "Two v1 labels were spelled 'postive'; intent was unambiguous from the notes. Not carried forward - the v2 pass re-labels those items from blank.",
+    "Rule 12 (legal actions) was checked against event-study evidence after the pilot raised it: defendants show material negative CARs around filing, plaintiffs are indistinguishable from zero. The rule was retained on that basis rather than on intuition.",
+    "Section 6a added: the hard flag is treated as a measured ambiguity signal, and Act 1 metrics are reported on both the full evaluation set and the hard=0 confident subset. Prespecified before any label was fitted.",
+    "Rubric v2 -> v3 on 2026-09-10, before any v2 label was written. Rules 12-15 checked against event-study evidence; rule 13 (forced departures are not automatically negative) and rule 15 (M&A direction depends on whether the subject is target or acquirer) were corrected as factually wrong. Section 6b records the evidence and declines the stronger proposal of weighting labels by historical average reaction, which would make the ground truth a function of returns."
+  ],
+  "_deviations": "Add any further rubric question that arises and how it was resolved."
+}

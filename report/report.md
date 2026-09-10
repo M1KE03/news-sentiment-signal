@@ -75,6 +75,13 @@ The realised half-width is 3.16 bps, slightly narrower than `h2` anticipated. Un
 
 **This is flagged as a boundary case and the flag is part of the result.** The lower endpoint is **−4.9031**, within 0.1 bps of −5. The classification turns on a difference smaller than the reporting precision. Had the interval been one-tenth of a basis point wider, the conclusion would have been *inconclusive* instead. The finding is therefore an informative null that only just qualifies as informative, and it should not be quoted without that qualification.
 
+**The robustness suite (§7) sharpens that qualification rather than relieving it.** The conclusion is invariant across all five prespecified bandwidths, but **5 of 7 sensitivities are boundary cases**, and standard errors here are *smaller* at longer bandwidths — so the prespecified `L = 5` happens to sit in the range producing the narrow interval that places the result inside ±5. Separately, under median rather than mean daily aggregation the point estimate collapses to **−0.17 bps [−3.18, +2.84]**. So of the two dimensions M2 reports:
+
+- **"No association detected" is robust** — every bandwidth, both aggregation rules, both subperiods, both floors. Nothing rejects anywhere in Act 2.
+- **"Precise enough to exclude ±5 bps" is fragile** — it survives the prespecified rule, but on a margin of 0.1 bps and with most sensitivities sitting on the boundary.
+
+The report states both, and does not present the second with the confidence of the first.
+
 **Nothing rejects in the secondary family.** All 14 remaining (scorer, horizon) pairs, corrected together: smallest raw p = 0.249, smallest BH q = **0.946**, smallest BY q = **1.000**. Of the 15 return tests, 13 land on the informative null and 2 are inconclusive (LM h = 3, VADER h = 1), their intervals extending just past ±5.
 
 **Table 4.** Effect sizes in bps per 1σ with 95% **pointwise** intervals, against the prespecified 5 bps SESOI. The yardstick is a measure of *smallness*, not a profitability threshold — no claim about strategy returns is made in either direction, since realised value depends on signal use, timing, turnover, holding period and capacity, none of which this design measures (P19).
@@ -108,7 +115,45 @@ Individual coefficients are read descriptively afterwards, with pointwise interv
 
 ### 7. Robustness
 
-Specified but not yet run: median aggregation (now selectable rather than an inert flag), NW bandwidth sensitivity `L ∈ {0, 1, 10}` and the data-driven plug-in, first/second-half split, dropping `n_t < 5` from the `S_t` specifications, and a single-name spot check. The retained-position HAC convention is already reported alongside the session-indexed primary and agrees to 16 significant figures on every term, because the analysis sample has no interior gaps.
+All five prespecified exhibits were run. They are **sensitivity analyses, not additional tests**: they enter no correction family and cannot supply a result the primary specification did not (§6). Divergence is reported as fragility, never resolved by adopting whichever choice is most convenient.
+
+**Two are informative, one is bounded, and two turned out to be inapplicable to this corpus.** That is a weaker suite than "five robustness checks" suggests, and the distinction is drawn here rather than left for a reader to discover.
+
+**(a) Bandwidth — informative. The conclusion holds; the margin is thin.**
+
+| `L` | Interval (bps) | Conclusion | Boundary case |
+|---|---|---|---|
+| 0 (HC only) | [−5.02, +1.54] | informative null | yes |
+| 1 | [−5.04, +1.56] | informative null | yes |
+| **5 (primary)** | [−4.90, +1.41] | informative null | yes |
+| 10 | [−4.71, +1.22] | informative null | no |
+| plug-in (8) | [−4.77, +1.28] | informative null | no |
+
+The point estimate is identical throughout — bandwidth affects only the standard error — and the conclusion is invariant under the M2 rule. But **5 of 7 sensitivities are boundary cases**, and the direction deserves stating: standard errors here are *smaller* at longer bandwidths (`κ = 0.964 < 1`), so the prespecified `L = 5` sits in the range producing the narrower interval, and the narrow interval is what places it inside ±5. The residual ACF's largest value is **−0.082 at lag 5** — the prespecified bandwidth — and that negative autocorrelation is why HAC shrinks the interval. `L = 5` was fixed before any estimation, so this is coincidence rather than selection; the chain is exposed because a reader cannot check it otherwise.
+
+**(b) Aggregation — informative, and the point estimate is not robust.** Under median rather than mean daily aggregation: **−0.17 bps, 95% [−3.18, +2.84], p = 0.91**. The conclusion is unchanged and in fact cleaner — that interval is not a boundary case — but the point estimate collapses by roughly 90%. Anyone quoting "−1.74 bps" should know it becomes approximately zero under a defensible alternative. Mean was prespecified at D8; median is a sensitivity and is not promoted.
+
+**(c) Subperiod split — bounded.** First half −0.92 [−6.66, +4.83]; second half −2.81 [−6.81, +1.20]. Reading these for *overlap* would be worthless, since halving `n` widens each by about √2 and overlap is nearly guaranteed — an artefact of low power that would be mistaken for stability. The exhibit's actual question is whether the halves differ, which has its own interval:
+
+> **difference (first − second) = +1.89 bps, 95% [−5.11, +8.89], p = 0.60**
+
+Disjoint samples share no observations, so `var(diff) = var₁ + var₂`. The honest reading: the data **cannot distinguish a stable coefficient from one that moved by 5 bps in either direction**. That is a statement about power, not about stability.
+
+**(d) Dispersion floor — inapplicable.** Requiring `n_t ≥ 5` in the `S_t` specification changes nothing: exactly **one** session falls below the floor, and it is the zero-news session already excluded. The concern the check addresses — that thin-news sessions with a noisy `S_t` distort the estimate — does not arise on a corpus with a median of 337 headlines per session. Reporting this as "robust to the dispersion floor" would imply a stress test that was never applied.
+
+**(e) Single-name spot check — untestable on this corpus.** Its purpose is to remove the mismatch §6b concedes: Act 2 aggregates *company* news to a *market* outcome. Run on the three most-covered tickers:
+
+| Ticker | Headlines | Per session | n | bps per 1 SD | 95% interval | Empty sessions |
+|---|---:|---:|---:|---:|---|---:|
+| MRK | 3,068 | 1.22 | 1,382 | −3.46 | [−9.37, +2.46] | 1,105 |
+| MU | 2,934 | 1.17 | 1,101 | +6.06 | [−12.00, +24.12] | 1,414 |
+| MS | 2,905 | 1.15 | 1,235 | −5.31 | [−17.28, +6.67] | 1,237 |
+
+At roughly 1.2 headlines per session against the market aggregate's 345, `S_t` for a single name is far noisier and **44–56% of sessions carry no headlines at all**. All three intervals include zero, run up to 36 bps wide, and disagree in sign. This weakness was recorded in the decision log *before* any return was fetched, so it is a confirmed prediction rather than an excuse. The useful conclusion is about design, not about these firms: a properly powered single-name study needs a denser per-ticker feed, and pooling across tickers would change the estimand to cross-sectional, which this design descopes.
+
+**Also reported.** The retained-position HAC convention agrees with the session-indexed primary to 16 significant figures on every term, because the analysis sample has no interior gaps. The tone series is highly persistent (ACF 0.52 at lag 1, 0.45 at lag 5), which is why HAC is used at all. The residual ACF exceeds its 95% band at 3 of 20 lags against roughly 1 expected by chance.
+
+**Not run, and deliberately not added.** A coverage-quartile split would test the concern (d) was aiming at and *is* answerable here, but it is not prespecified, and adding an exhibit after seeing results is the pattern this design exists to prevent. It is recorded as available for a future increment.
 
 ### 8. Limitations
 
@@ -120,6 +165,7 @@ Specified but not yet run: median aggregation (now selectable rather than an ine
 - **No intraday confirmation.** Daily aggregation cannot distinguish a signal that decays within hours from one that never existed.
 - **Headlines, not articles.** The measured object is a headline, written to be read rather than scored.
 - **A boundary classification.** The primary conclusion depends on an interval endpoint 0.1 bps from the SESOI. A slightly different sample, bandwidth or control transformation could move it to *inconclusive*.
+- **The robustness suite is weaker than its length suggests.** Of five prespecified exhibits, two are informative (bandwidth, aggregation), one is bounded by power (the subperiod difference spans ±5 bps and cannot distinguish stability from a substantial shift), and **two are inapplicable to this corpus**: the dispersion floor excludes exactly one session, and the single-name check runs on names averaging 1.2 headlines per session with up to 56% of sessions empty. Absence of divergence in the last three is not evidence of stability.
 
 ### 9. Why there is no trading backtest
 
@@ -131,10 +177,11 @@ A backtest converts an inference question into a specification search over costs
 
 Stated plainly, because a null is a result and deserves to be written as one:
 
-1. **No detectable association** between daily aggregate FinBERT tone and the next session's SPY return, conditional on a frozen control set — and the interval is narrow enough to exclude effects beyond ±5 bps per 1σ, *just*.
-2. **Nothing rejects in any family** — 14 secondary return tests, 4 exploratory Wald tests. The picture is uniform rather than mixed.
-3. **The two scorers cannot be separated** on their market association: `delta`'s interval spans −6.88 to +2.03 bps. The mathematical appendix gives a reason internal to the design — aggregation over hundreds of headlines compresses per-headline differences — so this is weak evidence about relative classification quality, not strong evidence of similarity.
-4. **Act 1 is unanswered** and is the study's main outstanding piece of work.
+1. **No detectable association** between daily aggregate FinBERT tone and the next session's SPY return, conditional on a frozen control set. This part is robust: it holds at every bandwidth, under both aggregation rules, in both halves of the sample.
+2. **The claim that the study is precise enough to exclude effects beyond ±5 bps is fragile, and is reported as such.** It rests on a 0.1 bps margin; 5 of 7 sensitivities are boundary cases; and the point estimate falls to −0.17 bps under median aggregation. It survives the prespecified rule and is stated — but a reader should not treat it as established with the same confidence as point 1.
+3. **Nothing rejects in any family** — 14 secondary return tests, 4 exploratory Wald tests. The picture is uniform rather than mixed.
+4. **The two scorers cannot be separated** on their market association: `delta`'s interval spans −6.88 to +2.03 bps. The mathematical appendix gives a reason internal to the design — aggregation over hundreds of headlines compresses per-headline differences — so this is weak evidence about relative classification quality, not strong evidence of similarity.
+5. **Act 1 is unanswered** and is the study's main outstanding piece of work.
 
 ---
 

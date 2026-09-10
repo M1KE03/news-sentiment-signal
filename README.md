@@ -63,6 +63,20 @@ within 0.1 bps of −5, which is the reporting precision. One-tenth of a basis p
 conclusion would have been *inconclusive*. Quoting the null without this qualification would
 overstate it.
 
+**The two halves of that conclusion do not carry equal weight, and the robustness suite is why.**
+*No association detected* is robust — it holds at every prespecified bandwidth, under both
+aggregation rules, and in both halves of the sample. *Precise enough to exclude ±5 bps* is fragile:
+5 of 7 sensitivities are boundary cases, standard errors are **smaller** at longer bandwidths so the
+prespecified `L = 5` sits in the range producing the narrow interval, and under median rather than
+mean aggregation the point estimate collapses to **−0.17 bps [−3.18, +2.84]**. Both are reported;
+the second is not presented with the confidence of the first.
+
+**The robustness suite is also weaker than "five checks" implies.** Two exhibits are informative,
+one is bounded by power, and **two are inapplicable to this corpus** — the dispersion floor excludes
+exactly one session, and the single-name check runs on tickers averaging 1.2 headlines per session
+with up to 56% of sessions empty. Absence of divergence in those is not evidence of stability.
+Detail in [`report/report.md`](report/report.md) §7.
+
 **Nothing rejects anywhere else.** The 14-test secondary family: smallest BH q = 0.946, BY q = 1.000.
 The four exploratory RQ4 joint Wald tests: smallest BH q = 0.087. Two individual RQ4 coefficients
 have intervals excluding zero and neither is reported as a finding, because the joint test that

@@ -673,8 +673,14 @@ def load_market(
     end: str,
     calendar: pd.DatetimeIndex | None = None,
     warmup_sessions: int = 0,
+    ticker: str | None = None,
 ) -> pd.DataFrame:
-    """SPY daily bars + ^VIX close, on the exchange calendar.
+    """Daily bars for `ticker` (default SPY) + ^VIX close, on the exchange calendar.
+
+    `ticker` exists only for the protocol's single-name robustness spot check.
+    It defaults to `config.MARKET_TICKER`, so every existing caller is unchanged,
+    and the column names stay the same because the downstream panel contract is
+    defined on names rather than on which instrument produced them.
 
     Three corrections over the naive version (R04a / audit A04):
 
@@ -710,14 +716,15 @@ def load_market(
     # yfinance's `end` is exclusive; without +1 day the final session is lost.
     fetch_to = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
+    symbol = config.MARKET_TICKER if ticker is None else ticker
     spy = yf.download(
-        config.MARKET_TICKER, start=fetch_from, end=fetch_to, auto_adjust=True, progress=False
+        symbol, start=fetch_from, end=fetch_to, auto_adjust=True, progress=False
     )
     if isinstance(spy.columns, pd.MultiIndex):
         spy.columns = spy.columns.get_level_values(0)
     if spy.empty:
         raise RuntimeError(
-            f"no {config.MARKET_TICKER} data returned for {fetch_from}..{fetch_to}"
+            f"no {symbol} data returned for {fetch_from}..{fetch_to}"
         )
     spy.index = pd.DatetimeIndex(spy.index).normalize()
 

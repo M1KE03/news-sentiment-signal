@@ -25,7 +25,7 @@ The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-0
 1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
 2. **§5a** names the next increment and why it is next.
 3. **§6** is what you cannot do without a human.
-4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **525 passing, 0 skipped**, is the baseline.
+4. Run `python preflight.py` to see what is installed and what artifacts exist, then `pytest`: **544 passing, 0 skipped**, is the baseline.
 
 Three facts that will save you an hour:
 
@@ -346,10 +346,10 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R11 | — | 🟡 **Pilot done.** 54 headlines/s, 4.49 h projected, 0.45 % truncation, 111 MB; 10-session chunk scored, verified, resumed. **Full pass awaits the user's D4/budget decision** |
 | R12 | — | ✅ Attenuation derivation + six-case simulation. Standardization gives exponent 1/2; aggregation over 337 headlines compresses a 2x noise gap to 1.034x; bounded scores **amplify** rather than attenuate |
 | — | — | **8 of 15 findings' repairs remain**: R11–R15. A13 and A14 closed at R10/R09 |
-| R13a | — | ⬜ **Blocked on human labels.** Handoff de-risked and tested; `provenance_pilot.json` template added |
+| R13a | — | ⬜ **Blocked on human labels.** Pilot labelled under v1 and flagged 34/60 `hard` → **rubric v2** (rules 11–16). v2 worksheets built (200 + 600), instructions in `HOW_TO_LABEL.md`, stop point after calibration |
 | R13b | — | ✅ Act 2 run. Primary **−1.74 bps [−4.90, +1.42]**, informative null, **boundary case flagged**. Nothing rejects in any family |
 | R14 | A15 | ✅ Staged publication, run manifest, panel provenance. A failed run publishes nothing |
-| R15 | — | ✅ Report written against the published tables; README Findings replaced; [`reproduction.md`](reproduction.md) + 22 tests holding the docs to the code |
+| R15 | — | ✅ Report written against the published tables; **Act 2 robustness suite run** — 2 of 5 exhibits informative, 1 power-bounded, 2 inapplicable, all reported as such; README Findings replaced; [`reproduction.md`](reproduction.md) + 22 tests holding the docs to the code |
 
 **Twelve findings are closed (A01–A12)**, A14 is closed by this R09 pass, A15 is partly closed, and A13 remains open (preflight and dependency inventory — R10).
 
