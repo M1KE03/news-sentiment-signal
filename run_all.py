@@ -136,7 +136,7 @@ def write_advance_precision(record: dict) -> None:
             temporary.unlink()
 
 
-def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
+def run_analysis(panel: pd.DataFrame) -> dict:
     TABLES.mkdir(parents=True, exist_ok=True)
     # Persist advance planning before any tone/outcome regression is called.
     precision = inference.primary_precision(panel)
@@ -180,12 +180,21 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     families = {sc: table3.loc[table3["scorer"] == sc].copy() for sc in config.SCORERS}
     table3.to_csv(TABLES / "table3_lag_family.csv", index=False)
 
-    # --- placebo (D12) ---------------------------------------------------
-    placebo = {}
+    # --- timing diagnostic (protocol section 9) --------------------------
+    # A percentile rank, never a p-value: the old block-resampling "placebo"
+    # was removed at R08c. Full circular shift of standardized tone over the
+    # retained rows, controls and outcomes left in place.
+    timing = {}
     for sc in config.SCORERS:
-        r = inference.permutation_pvalue(sample, sc, n=draws)
-        placebo[sc] = r["p_permutation"]
-        print(f"placebo {sc}: t = {r['t_observed']:.2f}, p = {r['p_permutation']:.3f}")
+        d = inference.timing_diagnostic(panel, sc)
+        timing[sc] = {k: v for k, v in d.items() if k != "shifted_coefficients"}
+        print(
+            f"timing diagnostic {sc}: observed {d['observed_bps']:.2f} bps, "
+            f"percentile {d['percentile']:.3f} of {d['n_shifts']} shifts "
+            f"({d['n_ties']} ties); {d['n_gaps']} gap(s), largest "
+            f"{d['largest_gap_sessions']} session(s). Not a p-value."
+        )
+    pd.DataFrame(timing.values()).to_csv(TABLES / "table_timing_diagnostic.csv", index=False)
 
     # --- Table 4: effect sizes in bps per 1 sigma (D15) ------------------
     table4 = pd.concat(
@@ -194,17 +203,40 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     )
     table4.to_csv(TABLES / "table4_effect_sizes.csv", index=False)
 
-    # --- the attenuation bridge (6.3) ------------------------------------
-    atten = inference.attenuation_comparison(sample)
-    atten.to_csv(TABLES / "table_attenuation.csv", index=False)
-    corr = atten.attrs.get("corr_s")
-    print(f"corr(s_finbert, s_lm) = {corr:.3f}")
-    if corr is not None and corr > 0.9:
-        print(
-            "  -> the two daily series are near-collinear; the attenuation "
-            "comparison is bounded and must be reported as inconclusive, not "
-            "redesigned until it separates them."
-        )
+    # --- comparing scorers (protocol section 7) --------------------------
+    # (a) the paired difference, with the cross-equation HAC covariance. This
+    # is the only quantity that supports a "one beats the other" statement
+    # (section 11); two separate t-statistics do not.
+    contrast = inference.paired_scorer_contrast(panel)
+    contrast.table().to_csv(TABLES / "table_paired_scorer_contrast.csv", index=False)
+    # never leave a table produced by a superseded method beside a current one
+    for stale in ("table_attenuation.csv",):
+        if (TABLES / stale).exists():
+            (TABLES / stale).unlink()
+    wald = contrast.wald()
+    corr = contrast.diagnostics["corr_tone"]
+    point, lo, hi = wald["bps"]
+    print(
+        f"delta(finbert - lm) = {point:.2f} bps per 1 SD, 95% pointwise "
+        f"[{lo:.2f}, {hi:.2f}], n = {contrast.n}"
+        + ("  [degenerate: the two scorers carry identical information]"
+           if wald["degenerate"] else f", p = {wald['p']:.3f}")
+    )
+    # Reported, not acted on: a high correlation widens delta's interval, and
+    # that widening is already the honest statement of what can be distinguished.
+    print(f"  corr(z_finbert, z_lm) = {corr:.3f}; "
+          f"tone VIFs {contrast.diagnostics['vif_tone']}")
+
+    # (b) a different estimand: does one add information given the other?
+    incremental = inference.incremental_contribution(panel)
+    pd.DataFrame({
+        "term": incremental.names,
+        "coef": incremental.params.to_numpy(),
+        "nw_se": incremental.bse.to_numpy(),
+        "p": incremental.pvalues.to_numpy(),
+    }).assign(estimand=incremental.estimand, nobs=incremental.nobs,
+              interval_scope="pointwise").to_csv(
+        TABLES / "table_incremental_contribution.csv", index=False)
 
     # --- Table 5: volatility and volume (RQ4) ----------------------------
     rows = []
@@ -224,7 +256,7 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     table5.to_csv(TABLES / "table5_vol_volume.csv", index=False)
 
     # --- figures ----------------------------------------------------------
-    plots.save(plots.figure2_lag_family(families, contemp, placebo), "figure2_lag_family")
+    plots.save(plots.figure2_lag_family(families, contemp), "figure2_lag_family")
     plots.save(plots.figure3_dispersion_volume(sample), "figure3_dispersion_volume")
     plots.save(plots.figure4_context(panel), "figure4_context")
     plots.save(plots.figure_acf(sample), "figure_acf_sentiment")
@@ -233,7 +265,7 @@ def run_analysis(panel: pd.DataFrame, draws: int) -> dict:
     summary = {
         "advance_precision": "advance_precision.json",
         "coverage": coverage,
-        "placebo": placebo,
+        "timing_diagnostic": timing,
         "corr_finbert_lm": corr,
         "rq2_admissible": config.RQ2_ADMISSIBLE,
         "date_only_fallback": config.DATE_ONLY_FALLBACK,
@@ -251,8 +283,6 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--skip-panel", action="store_true",
                     help="reuse processed/daily_panel.parquet instead of rebuilding it")
-    ap.add_argument("--draws", type=int, default=config.PERMUTATION_DRAWS,
-                    help="permutation draws (lower it for a smoke run)")
     args = ap.parse_args()
 
     _check_locked_decisions()
@@ -266,7 +296,7 @@ def main() -> None:
         panel = build_panel()
         print(f"wrote {config.PANEL_PARQUET}  ({len(panel):,} rows)")
 
-    run_analysis(panel, args.draws)
+    run_analysis(panel)
     print("\nAct 1 (Table 1, Figure 1) is produced by notebooks/02_validation.ipynb "
           "-- it is an independent branch and needs the PhraseBank, not the panel.")
 

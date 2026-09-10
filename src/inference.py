@@ -203,55 +203,15 @@ def adjust_return_families(estimates: pd.DataFrame, q: float = config.FDR_Q) -> 
     return out
 
 
-def _circular_block_permute(x: np.ndarray, block: int, rng: np.random.Generator) -> np.ndarray:
-    """Reassemble x from randomly placed circular blocks of fixed length.
-
-    Preserves the series' own short-run autocorrelation while destroying its
-    alignment with the outcome -- an assumption-free null (D12). The same
-    instinct as a block bootstrap: never let a resampling scheme destroy the
-    dependence you are worried about.
-    """
-    n = len(x)
-    n_blocks = int(np.ceil(n / block))
-    starts = rng.integers(0, n, size=n_blocks)
-    idx = (starts[:, None] + np.arange(block)[None, :]).ravel() % n
-    return x[idx[:n]]
-
-
-def permutation_pvalue(
-    panel: pd.DataFrame,
-    scorer: str,
-    horizon: int = config.PLACEBO_HORIZON,
-    n: int = config.PERMUTATION_DRAWS,
-    block: int = config.PERMUTATION_BLOCK,
-    seed: int = config.SEED,
-    maxlags: int = config.NW_MAXLAGS,
-) -> dict:
-    """D12. Two-sided permutation p-value for the horizon-h t-statistic."""
-    rng = np.random.default_rng(seed)
-    key = f"s_{scorer}"
-    observed = float(predictive(panel, scorer, horizon, maxlags=maxlags).tvalues[key])
-
-    df = panel.copy()
-    s = df[key].to_numpy(dtype=float)
-    null = np.empty(n)
-    for i in range(n):
-        df[key] = _circular_block_permute(s, block, rng)
-        null[i] = predictive(df, scorer, horizon, maxlags=maxlags).tvalues[key]
-
-    # +1 top and bottom: under the null the observed statistic is itself one
-    # draw, so an exact zero is not an available p-value.
-    p = (1 + np.sum(np.abs(null) >= abs(observed))) / (n + 1)
-    return {
-        "scorer": scorer,
-        "horizon": horizon,
-        "t_observed": observed,
-        "p_permutation": float(p),
-        "n_draws": n,
-        "block": block,
-        "seed": seed,
-        "null": null,
-    }
+# `_circular_block_permute` and `permutation_pvalue` were removed at R08c
+# (audit A08 / B19). They drew blocks **with replacement**, so some observations
+# appeared twice and others not at all -- not a permutation -- and the `+1`
+# correction on the resulting p-value did not repair a null distribution built
+# the wrong way. The output was also labelled `p_permutation` and plotted as a
+# p-value, which protocol Section 11 forbids. `timing_diagnostic` replaces them
+# with a full circular shift and a percentile rank. The functions were deleted
+# rather than deprecated: a callable that returns a field named `p_permutation`
+# is an invitation to quote it.
 
 
 def advance_precision(
@@ -415,58 +375,24 @@ def effect_size_table(family: pd.DataFrame, sigma_s: float = 1.0) -> pd.DataFram
     return out
 
 
-def attenuation_comparison(
-    panel: pd.DataFrame,
-    scorers: Sequence[str] = ("finbert", "lm"),
-    horizon: int = 1,
-    maxlags: int = config.NW_MAXLAGS,
-) -> pd.DataFrame:
-    """Section 6.3. Identical specification, one scorer swapped for the other.
-
-    Errors-in-variables predicts the better classifier carries the larger |beta|
-    and the relatively smaller standard error. Read this next to the daily
-    correlation of the two S_t series (reported in `.attrs["corr_s"]`): if they
-    are near-collinear the comparison is bounded and inconclusive, and is
-    reported that way rather than redesigned until it separates them.
-    """
-    rows = []
-    for sc in scorers:
-        res = predictive(panel, sc, horizon, maxlags=maxlags)
-        key = f"s_{sc}"
-        rows.append(
-            {
-                "scorer": sc,
-                "coef": float(res.params[key]),
-                "abs_coef": abs(float(res.params[key])),
-                "nw_se": float(res.bse[key]),
-                "t": float(res.tvalues[key]),
-                "p": float(res.pvalues[key]),
-                "sd_s": float(panel[key].std()),
-                "nobs": int(res.nobs),
-            }
-        )
-    out = pd.DataFrame(rows)
-    if len(scorers) == 2:
-        out.attrs["corr_s"] = float(panel[f"s_{scorers[0]}"].corr(panel[f"s_{scorers[1]}"]))
-    return out
-
-
-def horse_race(panel: pd.DataFrame, horizon: int = 1, maxlags: int = config.NW_MAXLAGS):
-    """Section 6.3 secondary exhibit: both scores in one regression.
-
-    Expect multicollinearity to blur this. Quote the correlation alongside it
-    rather than reading a muddy horse race as evidence of anything.
-    """
-    X = pd.DataFrame(
-        {
-            "s_finbert": panel["s_finbert"],
-            "s_lm": panel["s_lm"],
-            "ret": panel["ret"],
-            "rv_parkinson": panel["rv_parkinson"],
-            "log_volume": panel["log_volume"],
-        }
-    )
-    return nw_ols(panel[f"ret_lead{horizon}"], X, maxlags=maxlags)
+# `attenuation_comparison` and `horse_race` were removed at R08b (audit A08).
+#
+# The first fitted each scorer separately and tabulated `abs_coef` beside two
+# separate t-statistics, then applied a correlation threshold that declared the
+# comparison "inconclusive" on its own. None of that tests `beta_A - beta_B`,
+# which is the quantity a "one beats the other" claim is about (P07), and
+# protocol Section 11 forbids the claim without an interval for that difference.
+# `paired_scorer_contrast` supplies the interval, with the cross-equation
+# covariance in it, and reports collinearity as a diagnostic instead of a rule.
+#
+# The second put unstandardized scores against raw `log_volume`, so it was
+# neither the frozen control set nor a comparison of comparable coefficients
+# (A07). `incremental_contribution` replaces it, labelled as the different
+# estimand it is.
+#
+# Both were deleted rather than deprecated, for the same reason as
+# `permutation_pvalue`: a callable that returns `abs_coef` and a per-scorer
+# p-value is an invitation to quote it as a comparison.
 
 
 def volatility_spec(panel: pd.DataFrame, scorer: str, maxlags: int = config.NW_MAXLAGS):
@@ -742,22 +668,54 @@ def hac_sandwich(
     if len(u) != n:
         raise ValueError(f"resid has {len(u)} rows, X has {n}")
 
-    if session_index is None:
-        s = np.arange(n, dtype=np.int64)
-    else:
-        s = np.asarray(session_index, dtype=np.int64).ravel()
-        if len(s) != n:
-            raise ValueError(f"session_index has {len(s)} entries, X has {n} rows")
-        if len(np.unique(s)) != n:
-            raise ValueError("session_index must be unique: one row per session")
-        if not np.all(np.diff(s) > 0):
-            raise ValueError("session_index must be strictly increasing")
-
-    xu = X * u[:, None]
+    meat = hac_meat(X * u[:, None], maxlags, session_index)
     XtXi = np.linalg.inv(X.T @ X)
+    return XtXi @ meat @ XtXi
+
+
+def _session_positions(n: int, session_index: Sequence[int] | None) -> np.ndarray:
+    """Validate the spacing rule's index. `None` means: rows are the sessions."""
+    if session_index is None:
+        return np.arange(n, dtype=np.int64)
+    s = np.asarray(session_index, dtype=np.int64).ravel()
+    if len(s) != n:
+        raise ValueError(f"session_index has {len(s)} entries, X has {n} rows")
+    if len(np.unique(s)) != n:
+        raise ValueError("session_index must be unique: one row per session")
+    if not np.all(np.diff(s) > 0):
+        raise ValueError("session_index must be strictly increasing")
+    return s
+
+
+def hac_meat(
+    scores: np.ndarray,
+    maxlags: int,
+    session_index: Sequence[int] | None = None,
+) -> np.ndarray:
+    """The `S` in the sandwich: Bartlett-weighted moment autocovariances.
+
+        S = sum_l w_l * (Omega_l + Omega_l'),
+        Omega_l = sum over pairs (i, j) at SESSION distance l of  g_i' g_j
+
+    `scores` holds one moment vector per observation. For a single equation
+    that is `x_t * u_t`; for the stacked two-equation system of protocol
+    Section 7(a) it is the two equations' moment vectors concatenated, which is
+    exactly how the cross-equation covariance enters `delta`'s standard error.
+
+    **This is the only place the spacing rule is implemented.** R07c's argument
+    rests on the two conventions being one computation with one differing input
+    (`hac-spacing-decision.md`); a second copy of this loop would quietly make
+    that false, so the stacked estimator calls this rather than reimplementing
+    the pairing.
+    """
+    g = np.asarray(scores, dtype=float)
+    if g.ndim != 2:
+        raise ValueError("scores must be a 2-D array with one row per observation")
+    n = g.shape[0]
+    s = _session_positions(n, session_index)
     w = _bartlett_weights(maxlags)
 
-    S = xu.T @ xu                      # lag 0, every observation with itself
+    S = g.T @ g                        # lag 0, every observation with itself
     where = {int(v): i for i, v in enumerate(s)}
     for lag in range(1, maxlags + 1):
         rows_i, rows_j = [], []
@@ -768,10 +726,9 @@ def hac_sandwich(
                 rows_j.append(j)
         if not rows_i:
             continue
-        omega = xu[rows_i].T @ xu[rows_j]
+        omega = g[rows_i].T @ g[rows_j]
         S += w[lag] * (omega + omega.T)
-
-    return XtXi @ S @ XtXi
+    return S
 
 
 class HACFit:
@@ -1016,3 +973,475 @@ def primary(
         fits=fits, convention=convention, scorer=scorer, horizon=horizon,
         maxlags=maxlags,
     )
+
+
+# =====================================================================
+# R08b: comparing scorers (protocol Section 7)
+# =====================================================================
+#
+# Audit A08. `attenuation_comparison` compared raw coefficient magnitudes and
+# separate t-statistics, and `horse_race` fitted unstandardized scores against
+# raw `log_volume`. Neither supports the claim it invites. Protocol Section 11
+# forbids claiming one scorer beats another without an interval for their
+# paired difference, and Section 7 says how to build one.
+#
+# Two different estimands, kept apart:
+#   (a) `paired_scorer_contrast` -- delta = beta_A - beta_B, each from its own
+#       regression, on the identical observation set, with the cross-equation
+#       HAC covariance in delta's standard error.
+#   (b) `incremental_contribution` -- both standardized scores in one
+#       regression: does one add information given the other?
+
+
+def common_eligibility(
+    panel: pd.DataFrame,
+    scorers: Sequence[str] = ("finbert", "lm"),
+    horizon: int = PRIMARY_HORIZON,
+) -> tuple[np.ndarray, dict]:
+    """Rows eligible for **every** named scorer, with each scorer's own ledger.
+
+    Protocol Section 7(a) requires the identical observation set. A scorer missing
+    tone on a session it would otherwise be eligible for removes that session
+    from the comparison for both, and the count is recorded rather than
+    absorbed: a difference computed on two different samples is not a paired
+    difference at all.
+    """
+    scorers = tuple(scorers)
+    if len(scorers) < 2 or len(set(scorers)) != len(scorers):
+        raise ValueError(f"need at least two distinct scorers, got {scorers}")
+
+    masks, ledgers = {}, {}
+    for sc in scorers:
+        masks[sc], ledgers[sc] = eligibility(panel, scorer=sc, horizon=horizon)
+
+    keep = np.logical_and.reduce([masks[sc] for sc in scorers])
+    ledger = {
+        "scorers": list(scorers),
+        "horizon": int(horizon),
+        "n_panel_rows": int(len(panel)),
+        "n_common": int(keep.sum()),
+        "per_scorer": {sc: ledgers[sc] for sc in scorers},
+        "n_lost_to_common_sample": {
+            sc: int(masks[sc].sum() - keep.sum()) for sc in scorers
+        },
+    }
+    return keep, ledger
+
+
+def _design_for(rows: pd.DataFrame, scorer: str) -> tuple[pd.DataFrame, float, float]:
+    """[const, z(S), controls] on the given rows, standardized on those rows."""
+    tone = pd.to_numeric(rows[f"s_{scorer}"], errors="coerce").astype(float)
+    mean, sd = float(tone.mean()), float(tone.std(ddof=1))
+    if not np.isfinite(sd) or sd == 0.0:
+        raise ValueError(
+            f"s_{scorer} has zero or undefined standard deviation on the "
+            f"{len(rows)} common sessions; z(S) is undefined"
+        )
+    design = pd.DataFrame({f"z_s_{scorer}": (tone - mean) / sd}, index=rows.index)
+    for c in PRIMARY_CONTROLS:
+        design[c] = pd.to_numeric(rows[c], errors="coerce").astype(float)
+    design = sm.add_constant(design, has_constant="add")
+    return design, mean, sd
+
+
+def _vif(design: pd.DataFrame, term: str) -> float:
+    """Variance inflation for one regressor against the rest of its own design."""
+    others = [c for c in design.columns if c not in (term, "const")]
+    if not others:
+        return 1.0
+    y = design[term].to_numpy(dtype=float)
+    X = sm.add_constant(design[others].to_numpy(dtype=float), has_constant="add")
+    resid = y - X @ np.linalg.lstsq(X, y, rcond=None)[0]
+    ss_tot = float(((y - y.mean()) ** 2).sum())
+    if ss_tot <= 0:
+        return float("inf")
+    r2 = 1.0 - float((resid**2).sum()) / ss_tot
+    return float("inf") if r2 >= 1.0 else float(1.0 / (1.0 - r2))
+
+
+class PairedContrast:
+    """`delta = beta_A - beta_B` with the cross-equation covariance included.
+
+    The two equations are fitted separately -- stacking a block-diagonal design
+    gives exactly the separate OLS estimates -- but the covariance is computed
+    over the **full** parameter vector, from each observation's concatenated
+    moment vector. That is what puts `cov(beta_A, beta_B)` into `delta`'s
+    standard error. Because the two tone series are strongly correlated, that
+    covariance is large and positive, so ignoring it (as two separate fits do)
+    substantially overstates the uncertainty about their difference.
+    """
+
+    def __init__(self, *, scorers, horizon, maxlags, convention, ledger, mask,
+                 positions, dates, designs, target, fits, params, cov, tone_sd,
+                 diagnostics):
+        self.scorers = tuple(scorers)
+        self.horizon = int(horizon)
+        self.maxlags = int(maxlags)
+        self.convention = convention
+        self.ledger = ledger
+        self.mask = mask
+        self.positions = positions
+        self.dates = dates
+        self.designs = designs
+        self.target = target
+        self.fits = fits
+        self.params = params          # Series, keys "<scorer>::<term>"
+        self.cov = cov                # DataFrame over the same keys
+        self.tone_sd = tone_sd
+        self.diagnostics = diagnostics
+
+    @property
+    def n(self) -> int:
+        return len(self.target)
+
+    def _tone_key(self, scorer: str) -> str:
+        return f"{scorer}::z_s_{scorer}"
+
+    def beta(self, scorer: str) -> float:
+        return float(self.params[self._tone_key(scorer)])
+
+    @property
+    def delta(self) -> float:
+        a, b = self.scorers[0], self.scorers[1]
+        return self.beta(a) - self.beta(b)
+
+    @property
+    def se_delta(self) -> float:
+        a, b = (self._tone_key(sc) for sc in self.scorers[:2])
+        var = (
+            float(self.cov.loc[a, a])
+            + float(self.cov.loc[b, b])
+            - 2.0 * float(self.cov.loc[a, b])
+        )
+        if var < 0:
+            if var > -1e-12 * max(abs(float(self.cov.loc[a, a])), 1.0):
+                return 0.0
+            raise ValueError(
+                f"variance of delta is negative ({var:.3g}); the stacked HAC "
+                f"covariance is not positive semi-definite under {self.convention}"
+            )
+        return float(np.sqrt(var))
+
+    @property
+    def degenerate(self) -> bool:
+        """True when the two scorers carry the same information on this sample.
+
+        Then `delta` and its variance are both exactly zero and no Wald
+        statistic exists. Reported as a fact about the inputs rather than
+        rescued with a floor.
+        """
+        return self.se_delta == 0.0
+
+    def wald(self) -> dict:
+        """Two-sided test of `delta = 0`, plus the pointwise interval in bps."""
+        from scipy import stats as _stats
+
+        delta, se = self.delta, self.se_delta
+        if self.degenerate:
+            return {
+                "delta": delta, "se": se, "z": float("nan"), "p": float("nan"),
+                "wald_chi2": float("nan"), "degenerate": True,
+                "bps": (0.0, 0.0, 0.0), "interval_scope": "pointwise",
+            }
+        z = delta / se
+        return {
+            "delta": delta, "se": se, "z": float(z),
+            "p": float(2.0 * _stats.norm.sf(abs(z))),
+            "wald_chi2": float(z**2), "degenerate": False,
+            "bps": bps_interval(delta, se), "interval_scope": "pointwise",
+        }
+
+    def table(self) -> pd.DataFrame:
+        """One row per scorer plus the contrast, all on the same sample."""
+        rows = []
+        for sc in self.scorers:
+            key = self._tone_key(sc)
+            se = float(np.sqrt(self.cov.loc[key, key]))
+            point, lo, hi = bps_interval(self.beta(sc), se)
+            rows.append({
+                "quantity": sc, "estimate": self.beta(sc), "se": se,
+                "bps_per_sd": point, "bps_lo95": lo, "bps_hi95": hi,
+                "n": self.n, "tone_sd": self.tone_sd[sc],
+            })
+        w = self.wald()
+        point, lo, hi = w["bps"]
+        rows.append({
+            "quantity": f"delta({self.scorers[0]} - {self.scorers[1]})",
+            "estimate": w["delta"], "se": w["se"],
+            "bps_per_sd": point, "bps_lo95": lo, "bps_hi95": hi,
+            "n": self.n, "tone_sd": np.nan,
+        })
+        out = pd.DataFrame(rows)
+        out["interval_scope"] = "pointwise"
+        out["coefficient_scale"] = "standardized_tone"
+        out["hac_convention"] = self.convention
+        out.attrs["wald"] = w
+        out.attrs["diagnostics"] = self.diagnostics
+        out.attrs["ledger"] = self.ledger
+        return out
+
+
+def paired_scorer_contrast(
+    panel: pd.DataFrame,
+    scorers: Sequence[str] = ("finbert", "lm"),
+    horizon: int = PRIMARY_HORIZON,
+    maxlags: int = config.NW_MAXLAGS,
+    convention: str = config.HAC_CONVENTION,
+) -> PairedContrast:
+    """Protocol Section 7(a). The interval Section 11 requires before any "beats" claim.
+
+    Both scorers standardized on the **common** sample, so `delta` is a
+    difference of comparable quantities: replacing `S` with `2S` changes neither
+    coefficient, which raw magnitudes cannot promise (Section 7, last paragraph).
+
+    Collinearity is reported, never acted on. `corr(z_A, z_B)` and the tone
+    VIFs go into `.diagnostics`; a high correlation widens `delta`'s interval
+    and that widening is the honest statement of what the data can distinguish.
+    There is no threshold at which this function declares itself inconclusive.
+    """
+    if convention not in HAC_CONVENTIONS:
+        raise ValueError(f"convention must be one of {HAC_CONVENTIONS}, got {convention!r}")
+    scorers = tuple(scorers)
+    keep, ledger = common_eligibility(panel, scorers, horizon)
+    if int(keep.sum()) <= len(PRIMARY_CONTROLS) + 2:
+        raise ValueError(f"too few common sessions to fit the contrast; ledger: {ledger}")
+
+    positions = np.flatnonzero(keep)
+    _assert_lead_adjacency(panel, positions, horizon)
+    rows = panel.loc[keep]
+    target = pd.to_numeric(rows[f"ret_lead{horizon}"], errors="coerce").astype(float)
+    if target.isna().any():
+        raise ValueError("the common sample contains a missing target; eligibility failed")
+
+    designs, tone_sd, params, moments, breads, fits = {}, {}, {}, [], [], {}
+    for sc in scorers:
+        design, _, sd = _design_for(rows, sc)
+        if design.isna().any().any():
+            raise ValueError(f"design for {sc} contains missing values on the common sample")
+        designs[sc], tone_sd[sc] = design, sd
+
+        Xa = design.to_numpy(dtype=float)
+        beta = np.linalg.lstsq(Xa, target.to_numpy(dtype=float), rcond=None)[0]
+        resid = target.to_numpy(dtype=float) - Xa @ beta
+        for term, value in zip(design.columns, beta):
+            params[f"{sc}::{term}"] = float(value)
+        moments.append(Xa * resid[:, None])
+        breads.append(np.linalg.inv(Xa.T @ Xa))
+        fits[sc] = {"beta": beta, "resid": resid, "design": design}
+
+    session_index = positions if convention == "session_indexed" else None
+    meat = hac_meat(np.hstack(moments), maxlags, session_index)
+    from scipy.linalg import block_diag as _block_diag
+
+    bread = _block_diag(*breads)
+    cov = bread @ meat @ bread
+
+    keys = list(params)
+    cov = pd.DataFrame(cov, index=keys, columns=keys)
+
+    z_a = designs[scorers[0]][f"z_s_{scorers[0]}"].to_numpy(dtype=float)
+    z_b = designs[scorers[1]][f"z_s_{scorers[1]}"].to_numpy(dtype=float)
+    diagnostics = {
+        "corr_tone": float(np.corrcoef(z_a, z_b)[0, 1]),
+        "vif_tone": {sc: _vif(designs[sc], f"z_s_{sc}") for sc in scorers},
+        "n_common": int(len(target)),
+        "note": "collinearity is a diagnostic; it does not decide the comparison",
+    }
+
+    return PairedContrast(
+        scorers=scorers, horizon=horizon, maxlags=maxlags, convention=convention,
+        ledger=ledger, mask=keep, positions=positions,
+        dates=pd.to_datetime(rows["date"]).reset_index(drop=True),
+        designs=designs, target=target, fits=fits,
+        params=pd.Series(params), cov=cov, tone_sd=tone_sd, diagnostics=diagnostics,
+    )
+
+
+def incremental_contribution(
+    panel: pd.DataFrame,
+    scorers: Sequence[str] = ("finbert", "lm"),
+    horizon: int = PRIMARY_HORIZON,
+    maxlags: int = config.NW_MAXLAGS,
+    convention: str = config.HAC_CONVENTION,
+) -> HACFit:
+    """Protocol Section 7(b). Both standardized scores in one regression.
+
+    A **different estimand** from the Section 7(a) contrast and labelled as such:
+    this asks whether one scorer adds information *given* the other, not which
+    marginal association is larger. Expect the correlation between the two
+    series to blur it; the paired contrast, not this, is what supports a
+    comparison claim.
+
+    Supersedes `horse_race`, which used unstandardized scores and raw
+    `log_volume` (A07/A08).
+    """
+    scorers = tuple(scorers)
+    keep, ledger = common_eligibility(panel, scorers, horizon)
+    positions = np.flatnonzero(keep)
+    _assert_lead_adjacency(panel, positions, horizon)
+    rows = panel.loc[keep]
+
+    design = pd.DataFrame(index=rows.index)
+    for sc in scorers:
+        tone = pd.to_numeric(rows[f"s_{sc}"], errors="coerce").astype(float)
+        sd = float(tone.std(ddof=1))
+        if not np.isfinite(sd) or sd == 0.0:
+            raise ValueError(f"s_{sc} has zero or undefined standard deviation on the common sample")
+        design[f"z_s_{sc}"] = (tone - float(tone.mean())) / sd
+    for c in PRIMARY_CONTROLS:
+        design[c] = pd.to_numeric(rows[c], errors="coerce").astype(float)
+
+    target = pd.to_numeric(rows[f"ret_lead{horizon}"], errors="coerce").astype(float)
+    session_index = positions if convention == "session_indexed" else None
+    fit = fit_hac(target, design, maxlags=maxlags, session_index=session_index,
+                  convention=convention)
+    fit.ledger = ledger
+    fit.estimand = "incremental_contribution_given_the_other_scorer"
+    return fit
+
+
+# =====================================================================
+# R08c: the timing diagnostic (protocol Section 9)
+# =====================================================================
+#
+# Audit A08 / B19. The superseded `permutation_pvalue` drew blocks **with
+# replacement**, so some observations appeared twice and others not at all. That
+# is not a permutation, and the `+1` correction on its p-value did not repair a
+# null distribution built the wrong way. It also labelled its output
+# `p_permutation` and plotted it as a p-value, which Section 11 forbids: shifting
+# tone destroys its relationship with the controls, so the resulting spread is
+# not the null distribution of the *conditional* coefficient.
+#
+# What replaces it is a full circular shift -- a bijection, every observation
+# used exactly once, the tone series' autocorrelation preserved exactly -- and
+# a percentile rank that is never called a p-value.
+
+
+def _shift_coefficients(z: np.ndarray, y: np.ndarray, controls: np.ndarray) -> np.ndarray:
+    """Tone coefficient for every circular shift `k = 0 .. n-1`, via Frisch-Waugh.
+
+    The controls and the outcome are identical for every `k` -- only the tone
+    column moves -- so partialling them out once is exact and turns `n` full
+    refits into `n` inner products. `tests/test_timing_diagnostic.py` checks the
+    result against direct refits rather than taking the algebra on trust.
+    """
+    n = len(z)
+    Xc = np.column_stack([np.ones(n), controls])
+    # Residualize once; the controls and the outcome never move.
+    solve = np.linalg.pinv(Xc)
+    y_r = y - Xc @ (solve @ y)
+
+    # The shifted tone must be residualized AFTER shifting: projection and
+    # rotation do not commute, so partialling out first and rolling the
+    # residual afterwards gives a different -- wrong -- coefficient.
+    out = np.empty(n)
+    for k in range(n):
+        zk = np.roll(z, -k)
+        zt = zk - Xc @ (solve @ zk)
+        denom = float(zt @ zt)
+        out[k] = float(zt @ y_r) / denom if denom > 0 else np.nan
+    return out
+
+
+def timing_diagnostic(
+    panel: pd.DataFrame,
+    scorer: str = PRIMARY_SCORER,
+    horizon: int = PRIMARY_HORIZON,
+    convention: str = config.HAC_CONVENTION,
+    round_bps: float = 0.1,
+) -> dict:
+    """Protocol Section 9. A descriptive percentile rank -- never a p-value.
+
+    The standardized tone of the `n` retained rows, **in session order after
+    eligibility**, is circularly shifted by every `k` in `1 .. n-1`; outcomes and
+    controls stay in place; the tone coefficient is recorded for each. The
+    observed `k = 0` coefficient is ranked within that reference distribution.
+
+    Shifting is a permutation of the retained rows, so `n` is identical for
+    every `k` and the coefficients are comparable across `k`. The alternative --
+    shifting on the full calendar and re-applying eligibility -- was considered
+    and rejected in Section 9 because it changes `n` with `k`. The cost of that
+    choice is recorded in the output rather than left implicit: **when the
+    retained rows have gaps, a shift of `k` positions is not a shift of `k`
+    calendar sessions**, so `n_gaps` and `largest_gap_sessions` are returned for
+    reporting beside the percentile.
+
+    Ties use the midrank convention, evaluated at the reporting precision of the
+    coefficient (0.1 bps), and the tie count is returned. On continuous data it
+    should be zero; a nonzero count means something in the fit is degenerate and
+    is surfaced rather than absorbed.
+    """
+    # Check the sample size before fitting: an under-identified design would
+    # otherwise emit a rank-deficiency warning from inside `primary` and reach
+    # this guard with a less useful message.
+    keep, _ = eligibility(panel, scorer=scorer, horizon=horizon)
+    if int(keep.sum()) < 3:
+        raise ValueError(
+            f"the timing diagnostic needs at least three retained rows, got "
+            f"{int(keep.sum())}"
+        )
+
+    fitted = primary(panel, scorer=scorer, horizon=horizon, convention=convention)
+    z = fitted.design[fitted.tone_term].to_numpy(dtype=float)
+    y = fitted.target.to_numpy(dtype=float)
+    controls = fitted.design[list(PRIMARY_CONTROLS)].to_numpy(dtype=float)
+    n = len(z)
+    coefs = _shift_coefficients(z, y, controls)
+    observed = float(coefs[0])
+    shifted = coefs[1:]                      # k = 1 .. n-1
+    if not np.isfinite(observed) or not np.isfinite(shifted).all():
+        raise ValueError("a shifted fit was degenerate; the diagnostic is not reported")
+
+    # Frisch-Waugh gives the same coefficient as the full fit; assert it rather
+    # than assume it, because the whole diagnostic hangs off this equality.
+    if not np.isclose(observed, fitted.beta, rtol=1e-8, atol=1e-14):
+        raise AssertionError(
+            f"partialled-out coefficient {observed!r} does not match the fitted "
+            f"{fitted.beta!r}; the shift path is not the primary specification"
+        )
+
+    scale = config.BPS_PER_UNIT
+    quantum = round_bps / scale
+    obs_r = np.round(observed / quantum) * quantum
+    sh_r = np.round(shifted / quantum) * quantum
+    below = int((sh_r < obs_r).sum())
+    ties = int((sh_r == obs_r).sum())
+    percentile = (below + 0.5 * ties) / n
+
+    positions = fitted.positions
+    steps = np.diff(positions)
+    gaps = steps[steps > 1] - 1
+
+    return {
+        "scorer": scorer,
+        "horizon": int(horizon),
+        "statistic": "tone coefficient under circular shift of standardized tone",
+        "observed_coef": observed,
+        "observed_bps": observed * scale,
+        "percentile": float(percentile),
+        "n": int(n),
+        "n_shifts": int(len(shifted)),
+        "n_below": below,
+        "n_ties": ties,
+        "tie_precision_bps": float(round_bps),
+        "shift_domain": "retained analysis rows in session order, after eligibility",
+        "shifted_coef_min": float(shifted.min()),
+        "shifted_coef_max": float(shifted.max()),
+        "shifted_coef_mean": float(shifted.mean()),
+        "shifted_bps_p05": float(np.quantile(shifted, 0.05) * scale),
+        "shifted_bps_p95": float(np.quantile(shifted, 0.95) * scale),
+        "n_gaps": int(len(gaps)),
+        "largest_gap_sessions": int(gaps.max()) if len(gaps) else 0,
+        "hac_convention": convention,
+        "is_p_value": False,
+        "reporting_note": (
+            "Descriptive timing diagnostic reported as a percentile rank. It is "
+            "NOT a p-value for H0: beta = 0 and is not assumption-free: shifting "
+            "tone also destroys its relationship with the controls, so this is "
+            "not the null distribution of the conditional coefficient. The "
+            "inferential statement comes from the HAC interval alone. A shift of "
+            "k positions is not a shift of k calendar sessions where the "
+            "retained rows have gaps; n_gaps and largest_gap_sessions quantify that."
+        ),
+        "shifted_coefficients": shifted,
+    }

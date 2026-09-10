@@ -25,13 +25,13 @@ The live plan is the [audit repair sequence](audit-implementation-plan-2026-09-0
 1. Read §1–§2 for what the study is, then **§3a** for what the last session changed.
 2. **§5a** names the next increment and why it is next.
 3. **§6** is what you cannot do without a human.
-4. Run `pytest` before touching anything: **333 passing, 0 skipped**, is the baseline.
+4. Run `pytest` before touching anything: **388 passing, 0 skipped**, is the baseline.
 
 Three facts that will save you an hour:
 
 - **The corpus is final.** It was rebuilt through the verified acquisition path at R03d; `interim/headlines.parquet` is 869,183 rows and its manifest records `verified_against_pin: true`. Do not redraw or rebuild it without a dated decision-log entry.
 - **Act 1's sample is drawn and waiting on a person.** `data/annotation/` holds 800 blind items. The draw is made **once** (P25).
-- **Inference remains partly scaffolded.** Primary/return-family reporting now uses the accepted controls and standardization; the old paired comparison, placebo and exploratory paths still require R08b/R08c and later repairs before empirical use.
+- **The Act 2 inference track is built.** Primary, return-family, paired-contrast and timing paths all use the accepted controls, standardization and eligibility. The superseded `attenuation_comparison`, `horse_race` and `permutation_pvalue` were **deleted** at R08b/R08c. The remaining old-plan callers are the RQ4 exploratory specs (`volatility_spec`, `volume_spec`), which still use raw-tone `predictive` conventions and are not on the primary path.
 
 ## 2. What the study is
 
@@ -249,8 +249,8 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 |---|---|---|---|
 | B16 | Volume naming; context-plot contract | ✅ | **R07a, 2026-09-10.** `log_turnover`→`log_volume`, `parkinson`→`rv_parkinson` across code, tests and docs; field contract in [`timing-contract.md`](timing-contract.md) §10; legacy-name and required-column guards; the context figure now requires `close_adj` instead of plotting a scalar NaN (P29 closed) |
 | B17 | Primary next-day regression on a fixture | ✅ | **R07b, 2026-09-10.** `inference.primary`/`PrimaryFit` fit the frozen specification on `inference.eligibility`'s rows; detrended volume control, tone standardized at fit time, four-reason exclusion ledger, full-calendar and per-observation adjacency guards. 24 tests in `tests/test_primary.py`. `predictive` remains for the secondary/exploratory paths R08 replaces |
-| B18 | Secondary family + paired scorer contrast | 🟡 | BH implemented; **BY sensitivity and the stacked `delta` contrast are not** |
-| B19 | Timing diagnostic corrected | ⬜ | Still block-resamples with replacement; B02 §9 specifies the circular shift |
+| B18 | Secondary family + paired scorer contrast | ✅ | **R08a + R08b, 2026-09-10.** One unadjusted primary and the exact 14-test secondary family with BH **and BY** (R08a); the stacked `delta` contrast on the common sample, with the cross-equation HAC covariance in its standard error (R08b) |
+| B19 | Timing diagnostic corrected | ✅ | **R08c, 2026-09-10.** `inference.timing_diagnostic`: full circular shift over the retained rows in session order, midrank percentile at 0.1 bps, tie count, gap disclosure. The block-resampling path and its config were deleted |
 | B20 | Standardized effects, precision, null logic | ✅ | **R07b + R07d, 2026-09-10.** Tone standardized at fit time so `beta` is per 1 SD and bps is `beta * 10,000` with no second rescaling (R07b); both advance half-widths recorded before any tone fit, and M2's two evidence dimensions with the boundary rule (R07d). The withdrawn three-conclusion rule is not implemented, by design |
 
 ### Phase E — mathematics and analysis
@@ -290,7 +290,8 @@ Fifteen findings (A01–A15) from the 2026-09-09 [project audit](project-audit-2
 | R07c | A09 | ✅ HAC spacing: **M7 decided** — session-indexed primary, retained-position reported alongside; [`hac-spacing-decision.md`](hac-spacing-decision.md) |
 | R07d | A10 | ✅ Pointwise effects, two evidence dimensions, boundaries, advance widths and controls-only kappa; atomic manifest publication before tone estimation |
 | R08a | A08 | ✅ Exact primary + 14 secondary return family; BH/BY, validation and runner migration |
-| R08b–R08c | A08 | ⬜ Paired scorer contrast and timing diagnostic |
+| R08b | A08 | ✅ Stacked `delta` contrast on the common sample; collinearity reported, never acted on; `attenuation_comparison`/`horse_race` deleted |
+| R08c | A08 | ✅ Circular-shift timing diagnostic as a percentile; `permutation_pvalue` deleted. **A08 closed** |
 | R09, R10 | A14, A13, A15 | ⬜ Documentation, preflight and pilot readiness |
 | R11, R12 | — | ⬜ Pilot and bounded scoring; the mathematical demonstration |
 | R13a, R13b | — | ⬜ Empirical validation and primary analysis |
@@ -306,8 +307,8 @@ Six findings are closed (A01–A06), A15 is partly closed, and eight remain open
 | README and report assert that a transformer reads financial sentences better than a word counter, as a premise | `README.md:5`, `report/report.md:12` | B27 / R09 |
 | README states findings as filled-in placeholders | `README.md` | B27 / R09 |
 | Report skeleton still uses original-plan language in places | `report/report.md` | B27 / R09 |
-| Placebo resamples blocks with replacement | `inference.permutation_pvalue` | B19 / R08c |
-| Legacy exploratory/paired paths still use the old raw-tone `predictive` helper; primary and return-family paths now use `primary` | `predictive`, `attenuation_comparison`, `permutation_pvalue` | R08b / R08c |
+| ~~Placebo resamples blocks with replacement~~ | **Closed at R08c** — function deleted; `timing_diagnostic` replaces it | — |
+| RQ4 exploratory specs still use old-plan conventions; every primary, return-family, paired and timing path now uses `primary`/`eligibility` | `volatility_spec`, `volume_spec` (and the `predictive` helper they lean on) | optional RQ4 increment |
 | Source filter matches by substring, so `notbenzinga.com` would pass | `src/data.py:94` | audit follow-up |
 | `config.AGG` is never read by `aggregate_daily` — an inert flag | `config.py:138` | audit follow-up |
 | `requirements.txt` versions are declared, not `pip freeze`d | | B28 / R10 |
@@ -364,7 +365,7 @@ Two corrections came out of it, both recorded: the earlier "0.05% malformed time
 
 ## 5a. The next increment
 
-**R08b**, then R08c. R07a–R07d and R08a are implemented and integrated, and M7 is decided.
+**R09** — documentation reconciliation. The whole inference track (R07a–R07d, R08a–R08c) is implemented and integrated, M7 is decided, and **A08 is closed**. What remains before scoring is documentation honesty (R09) and preflight/pilot readiness (R10).
 
 The corpus track is closed and Act 1's sample is drawn, so what remains on the critical path with **no external dependency** is the inference track: seven fixture-based increments that gate every Act 2 result.
 
@@ -375,7 +376,8 @@ The corpus track is closed and Act 1's sample is drawn, so what remains on the c
 | ~~R07c~~ | ✅ **Done 2026-09-10.** **M7 decided:** session-indexed primary, retained-position always reported alongside; `hac_spacing_study.py`, [`hac-spacing-decision.md`](hac-spacing-decision.md) | Chosen on interpretive grounds before any tone coefficient existed. Real-sample comparison still due at R13b |
 | ~~R07d~~ | ✅ Precision and conclusion reporting integrated | Both advance widths, controls-only kappa, eligible-row record and atomic publication before any tone coefficient |
 | ~~R08a~~ | ✅ Return family correction implemented and runner migrated | One unadjusted primary + 14 secondary, BH/BY and exact membership checks |
-| **R08b–c** | Paired scorer contrast and timing diagnostic | Stacked covariance for the contrast; replace block resampling with the circular shift (A08) |
+| ~~R08b~~ | ✅ **Done 2026-09-10.** Stacked `delta` on the common sample; the cross-equation covariance is large and positive here, so ignoring it **overstated** the difference's uncertainty | Section 11 forbids a "beats" claim without an interval for the difference (P07) |
+| ~~R08c~~ | ✅ **Done 2026-09-10.** Circular shift, midrank percentile, tie and gap disclosure; the block-resampling path deleted | It was not a permutation, and its output was labelled and plotted as a p-value |
 
 **Do this before scoring, not after.** R11's bounded scoring pass is the expensive step; discovering afterwards that the panel contract was wrong means re-deriving everything downstream of it.
 

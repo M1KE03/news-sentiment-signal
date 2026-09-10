@@ -284,7 +284,7 @@ def test_runner_persists_advance_record_before_first_tone_fit(tmp_path, monkeypa
 
     monkeypatch.setattr(inference, "lag_family", stop_at_first_fit)
     with pytest.raises(ReachedFirstToneFit):
-        run_all.run_analysis(_full_panel(), draws=1)
+        run_all.run_analysis(_full_panel())
 
 
 def test_failed_advance_publication_prevents_any_regression(tmp_path, monkeypatch):
@@ -298,6 +298,6 @@ def test_failed_advance_publication_prevents_any_regression(tmp_path, monkeypatc
         pytest.fail("a tone coefficient was estimated before the advance record was published")
     monkeypatch.setattr(inference, "primary", unexpected_fit)
     with pytest.raises(OSError, match="publication failure"):
-        run_all.run_analysis(_full_panel(), draws=1)
+        run_all.run_analysis(_full_panel())
     assert not (tmp_path / "advance_precision.json").exists()
     assert not list(tmp_path.glob("*.tmp"))

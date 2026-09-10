@@ -240,7 +240,7 @@ percentile = ( #{k : beta_k < beta_0} + 0.5 * #{k : beta_k == beta_0} ) / n
 
 with `k` ranging over `1 .. n−1`, so the denominator `n` counts the `n−1` shifted fits plus the observed one. Equality is evaluated at the reporting precision of the coefficient, and the **number of exact ties is reported**. On continuous data ties are expected to be zero; a nonzero count is a signal that something is degenerate in the fit and is surfaced rather than absorbed by the convention.
 
-**Why a full circular shift and not block resampling.** A circular shift is a bijection: every observation appears exactly once, and the tone series' entire autocorrelation structure is preserved exactly. Drawing blocks with replacement — what the current `src/inference.py` does — duplicates some observations and omits others, so it is not a permutation, and the `+1` correction on its p-value does not repair a null distribution built the wrong way (B19 fixes this).
+**Why a full circular shift and not block resampling.** A circular shift is a bijection: every observation appears exactly once, and the tone series' entire autocorrelation structure is preserved exactly. Drawing blocks with replacement — what `src/inference.py` did until R08c — duplicates some observations and omits others, so it is not a permutation, and the `+1` correction on its p-value does not repair a null distribution built the wrong way. **Implemented 2026-09-10 (R08c):** `inference.timing_diagnostic`; the block-resampling function and its settings were deleted rather than deprecated.
 
 **What it is not, stated in the report next to the number.** Shifting tone also destroys its relationship with the controls, so the resulting distribution is not the null distribution of the *conditional* coefficient. It is therefore reported as a **descriptive timing diagnostic** and as a **percentile rank**, never as a p-value for `H0: beta = 0`, and never as "assumption-free". The regression's inferential statement comes from the HAC interval in §4 and from nowhere else.
 
@@ -298,8 +298,8 @@ Identified in advance, each with the decision it drives. None is assumed to pass
 | Date-only fallback mapping, if the audit selects it | B09 |
 | Panel field renames in §10 | B16 |
 | ~~Primary regression implementation and its fixture tests~~ | **Closed at R07b, 2026-09-10** — `inference.primary`, `eligibility`, `tests/test_primary.py` |
-| Secondary family correction and the stacked `delta` comparison | B18 |
-| Timing-diagnostic reimplementation | B19 |
+| ~~Secondary family correction and the stacked `delta` comparison~~ | **Closed at R08a/R08b, 2026-09-10** — BH and BY across the 14; `inference.paired_scorer_contrast` |
+| ~~Timing-diagnostic reimplementation~~ | **Closed at R08c, 2026-09-10** — `inference.timing_diagnostic`; the block-resampling path deleted |
 | Standardized effects, precision report, conclusion logic | B20 / R07d |
 | Attenuation derivation and simulation | B21 |
 | ~~HAC lag spacing: retained-position vs session-indexed (§4, M7)~~ | **Closed at R07c, 2026-09-10** — session-indexed primary, both reported; [`hac-spacing-decision.md`](hac-spacing-decision.md). The comparison on the **real** sample remains due at R13b |

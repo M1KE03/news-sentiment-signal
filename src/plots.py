@@ -102,13 +102,18 @@ def figure1_confusion(results: dict[str, dict]) -> plt.Figure:
 def figure2_lag_family(
     families: dict[str, pd.DataFrame],
     contemporaneous: dict[str, dict] | None = None,
-    placebo: dict[str, float] | None = None,
+    timing: dict[str, dict] | None = None,
 ) -> plt.Figure:
     """Figure 2 (headline): coefficient +/- NW CI by horizon, one panel per scorer.
 
     `families` maps scorer -> the `lag_family` table. `contemporaneous` optionally
-    supplies {'coef','nw_se'} per scorer to draw the t=0 point. `placebo` maps
-    scorer -> permutation p-value, annotated on h=1.
+    supplies {'coef','nw_se'} per scorer to draw the t=0 point.
+
+    `timing` maps scorer -> the `timing_diagnostic` record. It is annotated as a
+    **percentile rank** and labelled as a diagnostic. The previous version
+    printed "placebo p = ..." from the block-resampling path removed at R08c;
+    protocol Section 11 forbids attaching that percentile to `H0: beta = 0` as a
+    p-value, and a figure annotation is exactly where such a number escapes.
     """
     use_style()
     n = len(families)
@@ -128,13 +133,15 @@ def figure2_lag_family(
         ax.set_title(SCORER_LABEL.get(name, name))
         ax.set_xlabel("horizon (trading days)")
         ax.set_xticks(h)
-        if placebo and name in placebo:
+        if timing and name in timing:
             ax.annotate(
-                f"placebo p = {placebo[name]:.3f}",
+                "timing diagnostic:\n"
+                f"{timing[name]['percentile']:.0%} percentile\n"
+                "(not a p-value)",
                 xy=(1, b[h.index(1)]),
                 xytext=(6, 14),
                 textcoords="offset points",
-                fontsize=8,
+                fontsize=7,
             )
     axes[0].set_ylabel(r"$\beta$ on $z(S_t)$  (log return per SD of tone)")
     # P24: "next-day nothing" asserted the primary result, and "same-day

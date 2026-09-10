@@ -183,11 +183,17 @@ HAC_CONVENTION = "session_indexed"
 HORIZONS = (1, 2, 3, 4, 5)
 FDR_Q = 0.05                 # BH across the 14 secondary return tests; BY sensitivity
 
-# ---------------------------------------------------------- D12 placebo ----
+# ------------------------------------------- D12 timing diagnostic ----
 
-PERMUTATION_DRAWS = 1000
-PERMUTATION_BLOCK = 21       # trading days
-PLACEBO_HORIZON = 1
+# The block-resampling placebo was removed at R08c: it drew blocks WITH
+# replacement, so it was not a permutation, and its output was labelled and
+# plotted as a p-value, which the inference protocol forbids. Its settings
+# (`PERMUTATION_DRAWS`, `PERMUTATION_BLOCK`) are deleted with it. The
+# replacement is a full circular shift over the retained analysis rows -- an
+# exhaustive, deterministic sweep of every k in 1..n-1, so there is nothing to
+# draw and no seed to set.
+TIMING_DIAGNOSTIC_HORIZON = 1
+TIMING_TIE_PRECISION_BPS = 0.1   # the reporting precision ties are judged at
 
 # ------------------------------------------------ D13 PhraseBank setup ----
 
