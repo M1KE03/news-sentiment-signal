@@ -277,7 +277,7 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | B01 | Independent-validation protocol | ✅ | [`validation-protocol.md`](validation-protocol.md) |
 | B02 | Inference protocol | ✅ | [`inference-protocol.md`](inference-protocol.md) |
 | B03 | Bounded news audit | ✅ | [`data-audit-fnspid.md`](data-audit-fnspid.md), `notebooks/01_data_audit.ipynb`, `src/audit.py` |
-| B04 | Universe, window, artifact provenance | 🟡 | `config.py`. Window **frozen** 2026-09-09 on the census; Loughran–McDonald release still **unresolved** |
+| B04 | Universe, window, artifact provenance | ✅ | `config.py`. Window **frozen** 2026-09-09 on the census; Loughran–McDonald acquired, verified and pinned 2026-09-10 (`LM_DICT_VERSION` 1993–2025 March 2026, SHA-256 recorded, digest checked by `preflight --stage scoring`) |
 | B05 | Timing and missing-data contract | ✅ | [`timing-contract.md`](timing-contract.md) |
 
 ### Phase B — timing repairs
@@ -293,12 +293,12 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 
 | ID | Task | Status | Notes |
 |---|---|---|---|
-| B10 | PhraseBank loader compatibility | ⬜ | `datasets==4.0.0` removed dataset scripts and `trust_remote_code`; `src/validate.load_phrasebank` will not run as pinned. Needed only if the §2 fallback is used |
+| B10 | PhraseBank loader compatibility | ⛔ | **Descoped.** `datasets==4.0.0` removed dataset scripts and `trust_remote_code`, so `load_phrasebank` will not run as pinned. It was only ever the *fallback* evaluation source (§2), and Act 1 ran on this study's own labels — the preferred option. Reopens only if PhraseBank is wanted as a supplementary contamination exhibit |
 | B11 | Prediction-blind annotation sample | ✅ | **R06a, 2026-09-09.** `src/annotate.py`; 800 items drawn into `data/annotation/`, 200 calibration / 600 evaluation by article group, blind export, 60-item pilot. **The only remaining dependency is a human annotator** |
 | B12 | FinBERT class probabilities | ✅ | `scoring.Classifier`, `predict_proba`/`predict`, `validate.predictions_for`; label order checked against the pin at construction |
 | B13 | Scoring-provenance / cache invalidation | ✅ | **Reopened by audit A01, closed again by R01a/R01b.** Fingerprints compare by JSON representation; FinBERT records the revision actually passed to its constructor; `text_sha256` detects changed headlines; a changed scorer fingerprint invalidates that whole cached column |
 | B14 | Batch checkpoints, resumable scoring | ✅ | **Reopened by audit A02, closed again by R01c/R01d.** Scores and provenance in one Parquet file, one replacement commit point, a process-held writer lock, explicit legacy refusal — [checkpoint contract](scoring-checkpoint-contract.md), 30 tests |
-| B15 | Paired classification uncertainty | ⬜ | Specified in B01 §7 |
+| B15 | Paired classification uncertainty | ✅ | **R06b + R13a.** `validate.paired_group_bootstrap` — group-resampled macro-F1 and accuracy differences, B = 10,000. Produced Act 1's primary contrast +0.102 [+0.050, +0.153] |
 
 ### Phase D — panel and inference
 
@@ -315,18 +315,18 @@ Legend: ✅ done · 🟡 partial · ⬜ not started · ⛔ descoped (with trigge
 | ID | Task | Status |
 |---|---|---|
 | B21 | Derivation + simulation | ✅ **R12, 2026-09-10** — [`mathematical-appendix.md`](mathematical-appendix.md), `attenuation_study.py` |
-| B22 | Scoring pilot and extrapolation | ⬜ **unblocked 2026-09-09** — Smart App Control disabled; `torch 2.14.0+cpu` loads and FinBERT runs. Pilot not yet measured — **R10/R11** |
-| B23 | Bounded, resumable scoring run | ⬜ |
-| B24 | Independent classification results | ⬜ |
-| B25 | Core panel and primary market results | ⬜ |
+| B22 | Scoring pilot and extrapolation | ✅ | **R11.** 54 → 113 headlines/s after length-sorted batching; truncation measured at 0.45% over the whole corpus; storage 128 B/row |
+| B23 | Bounded, resumable scoring run | ✅ | **R11.** 869,183 headlines × 3 scorers in 3.13 h; 3,647/3,647 days complete; resume verified to rescore nothing |
+| B24 | Independent classification results | ✅ | **R13a.** Table 1, Table 1b, Figure 1; reported on the full set and the `hard = 0` subset |
+| B25 | Core panel and primary market results | ✅ | **R13b.** Panel 2,516 sessions / 2,453 eligible; primary −1.74 bps [−4.90, +1.41]; 14-test secondary family; RQ4 joint Wald family |
 
 ### Phase F — reproduce and present
 
 | ID | Task | Status |
 |---|---|---|
-| B26 | Integrated reproduction path | ⬜ |
-| B27 | Evidence-based captions, report, README | ⬜ |
-| B28 | Clean-directory reproduction check | ⬜ |
+| B26 | Integrated reproduction path | ✅ | **R14.** `StagedRun`, `run_manifest.json` as commit point, panel provenance, `verify_published` |
+| B27 | Evidence-based captions, report, README | ✅ | **R15 + R13a.** Report written against the published tables; every figure title names its axes; a test requires quoted numbers to match their files |
+| B28 | Clean-directory reproduction check | ✅ | **R15.** [`reproduction.md`](reproduction.md) documents the procedure and §6 states what it cannot check; 22 tests hold the docs to the code |
 
 ### The audit repair sequence (the live plan)
 
@@ -374,7 +374,7 @@ Verified line by line at R09 (2026-09-10). Four rows had already been fixed in e
 | Findings and method notes in the README described withdrawn procedures | `README.md` — the three overlapping Act 2 conclusions (M2 withdrew them), McNemar as the primary accuracy test (M4), block permutation as "assumes nothing" (§11 forbids "assumption-free"), the 5 bps SESOI as a "transaction-cost benchmark" (P19) | **Closed at R09** |
 | Notebook 04 instructed a predetermined finding | `notebooks/04_volume_vol.ipynb` — "the act most likely to yield a positive result" and "report the d_t coefficient prominently" | **Closed at R09** |
 | ~~Placebo resamples blocks with replacement~~ | **Closed at R08c** — function deleted; `timing_diagnostic` replaces it | — |
-| RQ4 exploratory specs still use old-plan conventions; every primary, return-family, paired and timing path now uses `primary`/`eligibility` | `volatility_spec`, `volume_spec` (and the `predictive` helper they lean on) | optional RQ4 increment |
+| ~~RQ4 exploratory specs still use old-plan conventions~~ | **Closed 2026-09-10.** `volatility_spec` and `volume_spec` were **deleted** and replaced by `rq4_family` (joint HAC Wald on `b1=b2=b3=0`, BH across four tests) and `rq4_coefficients` (descriptive, no q-value by construction). 20 tests | — |
 | ~~Source filter matches by **substring**~~ | **Closed 2026-09-10.** `data._host_matches` requires an exact host or a true subdomain; `notbenzinga.com`, `benzinga.com.evil.example` and `fakebenzinga.community` are now rejected. 4 tests | — |
 | ~~`config.AGG` is never read~~ | **Closed 2026-09-10.** `aggregate_daily(agg=...)` reads it, validates against `config.AGG_CHOICES`, and records the choice in `coverage["aggregation"]` so a median run cannot be mistaken for the primary. `d_t` stays a standard deviation under either rule. 5 tests | — |
 | VADER's cache fingerprint records `version: unknown` | `src/scoring.py` — the package exposes no version attribute; the lexicon size (7,506) pins the word list, but the field should read the installed distribution version via `importlib.metadata`, as `src/preflight.py` already does | unassigned |
