@@ -1,66 +1,71 @@
 # news-sentiment-signal
 
-**How do financial sentiment measurements differ in classification quality, and what additional
-information do they provide about subsequent market outcomes?**
+**How do financial sentiment measurements differ in classification quality, and
+what additional information do they provide about subsequent market outcomes?**
+Three scorers — a general-purpose lexicon, a domain lexicon and a domain
+transformer — are compared on independently labelled financial headlines, and
+their daily aggregate tone is then tested against the *next* session's SPY
+return. The two questions are kept apart on purpose: better classification is
+not assumed to imply a stronger market coefficient, and the contribution does
+not depend on finding a signal.
 
-Three scorers — a general-purpose lexicon, a domain lexicon and a domain transformer — are compared
-on independently labelled financial headlines, and their daily aggregate tone is then tested against
-the *next* session's SPY return. The two questions are kept apart on purpose: better classification
-is not assumed to imply a stronger market coefficient, and the contribution does not depend on
-finding a signal.
+**The classifiers separate, and the whole gap is one class.** On 596 usable
+hand-labelled headlines from this study's own collection, macro-F1 is 0.594
+(FinBERT), 0.493 (Loughran–McDonald) and 0.424 (VADER); the FinBERT−LM gap is
+**+0.102, 95% pointwise [+0.050, +0.153]** by paired bootstrap over article
+groups, and +0.104 on the confident subset. But FinBERT and LM are within 0.02
+on negative and neutral: LM calls **81.5% of genuinely positive headlines
+neutral**, because its score takes only three values on headline-length text and
+the dictionary carries 2,345 negative terms against 347 positive — an asymmetry
+built for 10-K risk language. This is a finding about applying a document-level
+dictionary to headlines, not evidence that a transformer reads financial
+language better.
 
-> **Status: both acts complete.** The protocols are written and frozen,
-> the corpus is assembled, scored and censused, and the defects found by the
-> [2026-09-09 audit](docs/archive/project-audit-2026-09-09.md) are repaired — 29 of 29 increments.
-> **869,183 headlines scored by all three scorers; 800 headlines labelled by hand; both acts
-> estimated with every choice prespecified.** 544 tests pass, 0 skip.
->
-> Current state lives in [`docs/archive/handover.md`](docs/archive/handover.md); the live plan is the
-> [repair sequence](docs/archive/audit-implementation-plan-2026-09-09.md); the clean-clone procedure is
-> [`docs/archive/reproduction.md`](docs/archive/reproduction.md).
+**The market association is an informative null.** Daily FinBERT tone against
+the next session's SPY log return, conditional on a frozen control set, over
+2,453 eligible sessions: **β = −1.74 bps per 1σ of tone, 95% pointwise
+Newey–West interval [−4.90, +1.41], p = 0.279.** No association detected, and
+precise enough to exclude effects beyond the prespecified 5 bps yardstick.
+⚠️ **That second half is a boundary case, and the flag is part of the result**:
+the lower endpoint is −4.9031, within 0.1 bps of −5. *No association detected*
+is robust across every prespecified bandwidth, both aggregation rules and both
+sample halves; *precise enough to exclude ±5 bps* is fragile — 5 of 7
+sensitivities are boundary cases, and under median rather than mean aggregation
+the estimate collapses to −0.17 bps [−3.18, +2.84].
+
+**The two acts do not connect, and that was derived in advance.** Act 1
+separates the scorers; Act 2 cannot (`delta = −2.43 bps [−6.88, +2.03]`).
+Standardization puts the attenuation exponent at ½, and averaging ~337
+headlines per session turns a *twofold* per-headline noise difference into a
+*1.034×* coefficient difference. The bridge is not refuted — it is not testable
+at this aggregation.
+
+**Status: both acts complete.** 869,183 headlines scored by all three scorers,
+800 labelled by hand, every choice prespecified; 544 tests pass, 0 skip.
+Write-up: [`report/report.md`](report/report.md). Clean-clone procedure:
+[`docs/archive/reproduction.md`](docs/archive/reproduction.md).
 
 ---
 
-## The two acts
-
-**Act 1 — classification quality.** On headlines from this study's own collection, labelled by
-humans who cannot see any model's output, how do FinBERT, Loughran–McDonald and VADER differ in
-macro-F1? The primary contrast is `macroF1(FinBERT) − macroF1(LM)` with a paired bootstrap that
-resamples **article groups**, since near-duplicate headlines are not independent draws.
-Financial PhraseBank is *not* the primary evaluation: `ProsusAI/finbert`'s own model card names it
-as fine-tuning data, so it is retained only as a supplementary exhibit carrying a contamination
-statement. Full specification: [`docs/validation-protocol.md`](docs/validation-protocol.md).
-
-**Act 2 — market association.** Is daily aggregate FinBERT tone associated with the *next* trading
-session's SPY log return, conditional on a frozen control set? One primary test, reported in basis
-points per standard deviation with a pointwise Newey–West interval; 14 secondary (scorer, horizon)
-tests under BH with Benjamini–Yekutieli alongside. Same-day association is **structurally
-suppressed** — no FNSPID sub-corpus is both intraday-stamped and relevant, so the timestamps cannot
-support it. Full specification: [`docs/archive/inference-protocol.md`](docs/archive/inference-protocol.md).
-
-**The bridge, and its status as a hypothesis.** Sentiment scores are noisy measurements of a latent
-quantity, and classical errors-in-variables attenuates a coefficient toward zero in proportion to
-measurement noise. That motivates a **conditional hypothesis** — on an identical specification, a
-better classifier *might* produce a larger, better-determined coefficient — and the assumptions it
-needs are stated on display rather than asserted as a mechanism. It is not a prediction the design
-guarantees, and a null or inconclusive Act 2 does not falsify Act 1.
-
 ## Findings
 
-**Act 2, primary claim.** Daily aggregate FinBERT tone against the *next* session's SPY log return,
-conditional on the frozen control set, over 2,453 eligible sessions:
+Per-scorer detail behind the opening: 600 independently labelled headlines from this study's own
+collection, 596 usable, thresholds fitted on a separate 200-item calibration part.
 
-> **β = −1.74 bps per 1 standard deviation of tone, 95% pointwise Newey–West interval
-> [−4.90, +1.41], p = 0.279.**
+| Scorer | macro-F1 | positive-class F1 |
+|---|---:|---:|
+| **FinBERT** | **0.594** | **0.546** |
+| Loughran–McDonald | 0.493 | **0.263** |
+| VADER | 0.424 | 0.390 |
 
-Act 2 reports **two independent facts about the same interval**, always together. Here the interval
-*includes zero* and *lies inside ±5 bps*, which is the **informative null**: no association
-detected, and precise enough to exclude effects beyond the prespecified 5 bps yardstick.
+On the confident subset (`hard = 0`, n = 541) the gap is +0.104 — so it does not come from the
+headlines a careful human could not resolve. LM's three values on headline-length text are `−1`,
+`0` and `+1`; 78% score exactly 0.
 
-⚠️ **It is a boundary case, and the flag is part of the result.** The lower endpoint is −4.9031 —
-within 0.1 bps of −5, which is the reporting precision. One-tenth of a basis point wider and the
-conclusion would have been *inconclusive*. Quoting the null without this qualification would
-overstate it.
+Act 2 reports **two independent facts about the same interval**, always together: here it *includes
+zero* and *lies inside ±5 bps*. That 0.1 bps is the reporting precision: one-tenth of a basis point
+wider and the conclusion would have been *inconclusive*. Quoting the null without this qualification
+would overstate it.
 
 **The two halves of that conclusion do not carry equal weight, and the robustness suite is why.**
 *No association detected* is robust — it holds at every prespecified bandwidth, under both
@@ -89,34 +94,31 @@ averaging a median of 337 headlines per session compresses a *twofold* per-headl
 into a *1.034×* coefficient difference. So this is weak evidence about relative classification
 quality, not strong evidence of similarity.
 
-**Act 1, classification quality.** 600 independently labelled headlines from this study's own
-collection, 596 usable, thresholds fitted on a separate 200-item calibration part:
-
-| Scorer | macro-F1 | positive-class F1 |
-|---|---:|---:|
-| **FinBERT** | **0.594** | **0.546** |
-| Loughran–McDonald | 0.493 | **0.263** |
-| VADER | 0.424 | 0.390 |
-
-> **macroF1(FinBERT) − macroF1(LM) = +0.102, 95% pointwise [+0.050, +0.153]**, paired bootstrap over
-> article groups. On the confident subset (`hard = 0`, n = 541) it is +0.104 — so the gap does not
-> come from the headlines a careful human could not resolve.
-
-**But the whole gap is one class, and the reason is mechanical.** FinBERT and LM are within 0.02 on
-negative and neutral. Loughran–McDonald calls **81.5% of genuinely positive headlines neutral**,
-because its score takes only three values on headline-length text (`−1`, `0`, `+1`; 78% score
-exactly 0) and the dictionary carries 2,345 negative terms against 347 positive — an asymmetry built
-for 10-K risk language. This is a finding about applying a document-level dictionary to headlines,
-not evidence that a transformer reads financial language better.
-
-**The two acts do not connect, and that was derived in advance.** Act 1 separates the scorers; Act 2
-cannot (`delta = −2.43 bps [−6.88, +2.03]`). The
-[mathematical appendix](docs/archive/mathematical-appendix.md) shows why: standardization puts the
-attenuation exponent at ½, and averaging ~337 headlines per session turns a *twofold* per-headline
-noise difference into a *1.034×* coefficient difference. The bridge is not refuted — it is not
-testable at this aggregation.
-
 Full write-up with every number traced to a file: [`report/report.md`](report/report.md).
+
+## The two acts
+
+**Act 1 — classification quality.** On headlines from this study's own collection, labelled by
+humans who cannot see any model's output, how do FinBERT, Loughran–McDonald and VADER differ in
+macro-F1? The primary contrast is `macroF1(FinBERT) − macroF1(LM)` with a paired bootstrap that
+resamples **article groups**, since near-duplicate headlines are not independent draws.
+Financial PhraseBank is *not* the primary evaluation: `ProsusAI/finbert`'s own model card names it
+as fine-tuning data, so it is retained only as a supplementary exhibit carrying a contamination
+statement. Full specification: [`docs/validation-protocol.md`](docs/validation-protocol.md).
+
+**Act 2 — market association.** Is daily aggregate FinBERT tone associated with the *next* trading
+session's SPY log return, conditional on a frozen control set? One primary test, reported in basis
+points per standard deviation with a pointwise Newey–West interval; 14 secondary (scorer, horizon)
+tests under BH with Benjamini–Yekutieli alongside. Same-day association is **structurally
+suppressed** — no FNSPID sub-corpus is both intraday-stamped and relevant, so the timestamps cannot
+support it. Full specification: [`docs/archive/inference-protocol.md`](docs/archive/inference-protocol.md).
+
+**The bridge, and its status as a hypothesis.** Sentiment scores are noisy measurements of a latent
+quantity, and classical errors-in-variables attenuates a coefficient toward zero in proportion to
+measurement noise. That motivates a **conditional hypothesis** — on an identical specification, a
+better classifier *might* produce a larger, better-determined coefficient — and the assumptions it
+needs are stated on display rather than asserted as a mechanism. It is not a prediction the design
+guarantees, and a null or inconclusive Act 2 does not falsify Act 1.
 
 ## Reproduce
 
@@ -241,6 +243,14 @@ FINDINGS.md          what the study found, in plain language with the mathematic
   frictions any user would face. A coefficient above it does not establish that a strategy makes
   money, and one below it does not establish the information is useless — realised value depends on
   signal use, timing, turnover, holding period and capacity, none of which this design measures.
+
+## Project history
+
+The protocols were written and frozen, the corpus assembled, scored and censused, and the defects
+found by the [2026-09-09 audit](docs/archive/project-audit-2026-09-09.md) repaired — 29 of 29
+increments. Current state lives in [`docs/archive/handover.md`](docs/archive/handover.md); the
+[repair sequence](docs/archive/audit-implementation-plan-2026-09-09.md) records that work; the
+clean-clone procedure is [`docs/archive/reproduction.md`](docs/archive/reproduction.md).
 
 ## Data and credits
 
