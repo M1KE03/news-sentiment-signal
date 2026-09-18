@@ -4,7 +4,7 @@ Date: 2026-09-09. **Status: APPROVED by the user and IMPLEMENTED (R01d).**
 
 Approval was given explicitly under the architecture gate. The contract below is the specification; `src/scoring.py` implements it and `tests/test_checkpoints.py` verifies it with 30 cases covering every failure state named here: injected failure at each of the write / flush / validate / replace stages with and without an existing generation, invalid or absent metadata refusing without sidecar fallback, legacy pairs never migrated, corrupt files refusing with the original cause, read-permission errors staying distinguishable from format errors, single-generation reads, writer contention and lock release after process death, hard stops either side of the commit with correct resumption, and the runner refusing an invalid checkpoint before aggregation.
 
-Related: [audit implementation plan](audit-implementation-plan-2026-09-09.md), [audit A02](project-audit-2026-09-09.md), [architecture approval gate](implementation-plan.md#5-architecture-approval-gates).
+Related: audit implementation plan, [audit A02](project-audit-2026-09-09.md), [architecture approval gate](implementation-plan.md#5-architecture-approval-gates).
 
 ## Decision proposed
 

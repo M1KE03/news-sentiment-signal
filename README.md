@@ -248,9 +248,8 @@ FINDINGS.md          what the study found, in plain language with the mathematic
 
 The protocols were written and frozen, the corpus assembled, scored and censused, and the defects
 found by the [2026-09-09 audit](docs/archive/project-audit-2026-09-09.md) repaired — 29 of 29
-increments. Current state lives in [`docs/archive/handover.md`](docs/archive/handover.md); the
-[repair sequence](docs/archive/audit-implementation-plan-2026-09-09.md) records that work; the
-clean-clone procedure is [`docs/archive/reproduction.md`](docs/archive/reproduction.md).
+increments. The clean-clone procedure is
+[`docs/archive/reproduction.md`](docs/archive/reproduction.md).
 
 ## Data and credits
 

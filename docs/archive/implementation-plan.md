@@ -2,11 +2,11 @@
 
 Date: 2026-09-09.
 
-**Status: in execution. B01-B09 and B12-B14 are complete; the corpus is assembled and D4 is frozen.** A [project audit](project-audit-2026-09-09.md) on 2026-09-09 found fifteen issues in the work done under this plan, and the [repair sequence](audit-implementation-plan-2026-09-09.md) is now the authoritative execution order — it sits inside this plan's B01-B28 rather than replacing it. Current state is in [`handover.md`](handover.md).
+**Status: in execution. B01-B09 and B12-B14 are complete; the corpus is assembled and D4 is frozen.** A [project audit](project-audit-2026-09-09.md) on 2026-09-09 found fifteen issues in the work done under this plan, and the repair sequence is now the authoritative execution order — it sits inside this plan's B01-B28 rather than replacing it. Current state is in `handover.md`.
 
 > **Corrected 2026-09-09 (A14).** This line previously read "implementation under this plan has not started" and remained there through fourteen completed increments, so a reader picking the project up was told to begin at B01.
 
-Related documents: [accepted proposals and decision history](research-review-decision-log.md), [completed scope draft](protocol-revision-draft.md), and [original implementation plan](implementation-plan-original.md).
+Related documents: [accepted proposals and decision history](research-review-decision-log.md), [completed scope draft](protocol-revision-draft.md), and original implementation plan.
 
 The original plan was absent from the working tree when this replacement was requested. Its reference copy was recovered by reading Git history at commit `b25bdb90093b7da8b3b68434f00808b6c83ec644`, blob `6f8361794d6cd43b4bbb71e32b5933a7f1cdd2ec`. That copy is historical context, not the current execution specification. No Git state was modified to recover it.
 

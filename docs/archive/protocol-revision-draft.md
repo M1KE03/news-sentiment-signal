@@ -6,7 +6,7 @@ Status: scope draft implementing the direction accepted in P01-P33 of the [resea
 
 Later planning checkpoint: the [implementation plan](implementation-plan.md) now gives the current execution sequence B01-B28 and awaits the user's go-ahead. This scope draft is retained to document the completed first increment; its earlier scheduling table is historical context.
 
-The [original implementation plan](implementation-plan-original.md) is preserved as the historical baseline. It still contains assumptions and implementation instructions identified for correction. This draft and the decision log identify the accepted direction; the replacement plan organizes its implementation into bounded steps as detailed specifications are resolved.
+The original implementation plan is preserved as the historical baseline. It still contains assumptions and implementation instructions identified for correction. This draft and the decision log identify the accepted direction; the replacement plan organizes its implementation into bounded steps as detailed specifications are resolved.
 
 ## Purpose and central question
 

@@ -2,7 +2,7 @@
 
 The project has a useful corpus, explicit research protocols, and substantial tested infrastructure. It is **not ready for substantive scoring or inference**. Several safeguards described as complete still fail under realistic inputs, and the executable analysis largely follows the superseded specification.
 
-This is an audit and implementation proposal, not implementation approval. No production code, protocol decisions, corpus files, environment settings, or Git state were changed. See the [proposed implementation sequence](audit-implementation-plan-2026-09-09.md).
+This is an audit and implementation proposal, not implementation approval. No production code, protocol decisions, corpus files, environment settings, or Git state were changed. See the proposed implementation sequence.
 
 ## Scope and evidence
 

@@ -4,7 +4,7 @@ Date: 2026-09-10. Increment: **R07c**. Resolves audit finding **A09** and the de
 
 Status: **decided and implemented**. No sentiment–return coefficient has been estimated, and nothing in this document was informed by one.
 
-Related: [inference protocol](inference-protocol.md) §4 · [project audit](project-audit-2026-09-09.md) A09 · [repair sequence](audit-implementation-plan-2026-09-09.md) · [decision log](research-review-decision-log.md).
+Related: [inference protocol](inference-protocol.md) §4 · [project audit](project-audit-2026-09-09.md) A09 · repair sequence · [decision log](research-review-decision-log.md).
 
 ---
 

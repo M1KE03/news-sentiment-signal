@@ -236,7 +236,8 @@ def require_artifacts(stage: str) -> None:
     if any(a.external for a in missing):
         lines.append(
             "One or more of these cannot be produced by any command in this "
-            "repository and needs a person; see docs/archive/handover.md section 6."
+            "repository and needs a person; the 'obtain by' line above says "
+            "how for each."
         )
     raise PreflightError("\n".join(lines))
 

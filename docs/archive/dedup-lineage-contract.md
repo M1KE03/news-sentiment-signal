@@ -4,7 +4,7 @@ Date: 2026-09-09. Increment: **R03a**. Audit finding: **A12** (with A11's missin
 
 Status: **implemented at R03b, 2026-09-09** (see §8). No artifact has been replaced; that is R03d. This document specifies what R03b implements and what R03d then verifies before the frozen corpus is rebuilt. It is written to be approved or rejected on its stated rules, in the pattern of the [timing contract](timing-contract.md) and the [scoring checkpoint contract](scoring-checkpoint-contract.md).
 
-Related: [project audit](project-audit-2026-09-09.md) A11/A12 · [repair plan](audit-implementation-plan-2026-09-09.md) R03a–R03d · [data audit](data-audit-fnspid.md) §11 · [validation protocol](validation-protocol.md) §4.
+Related: [project audit](project-audit-2026-09-09.md) A11/A12 · repair plan R03a–R03d · [data audit](data-audit-fnspid.md) §11 · [validation protocol](validation-protocol.md) §4.
 
 ---
 

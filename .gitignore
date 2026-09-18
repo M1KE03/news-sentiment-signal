@@ -37,3 +37,9 @@ Thumbs.db
 .env
 .vscode/
 .idea/
+
+# Archived process history: kept locally, not published
+docs/archive/handover.md
+docs/archive/audit-implementation-plan-2026-09-09.md
+docs/archive/implementation-plan-original.md
+docs/archive/future-work.md
