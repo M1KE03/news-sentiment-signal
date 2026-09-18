@@ -343,7 +343,7 @@ def test_window_end_is_inclusive_of_its_last_day_and_nothing_more(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# R03b: the dedup lineage contract's acceptance tests (docs/dedup-lineage-contract.md
+# R03b: the dedup lineage contract's acceptance tests (docs/archive/dedup-lineage-contract.md
 # section 5). Each corresponds to a defect reproduced against the running code
 # in R03a and quantified on the real corpus.
 # --------------------------------------------------------------------------

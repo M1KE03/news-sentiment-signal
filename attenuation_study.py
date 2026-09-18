@@ -5,7 +5,7 @@
 Six demonstrations on generating processes specified here, with the true
 parameter known by construction in every case. Nothing in this file reads
 project data, and no quantity produced is an estimate of anything about SPY or
-about these scorers. See docs/mathematical-appendix.md.
+about these scorers. See docs/archive/mathematical-appendix.md.
 
 The point of a simulation with a known answer is that it can be wrong. Each
 case prints the analytic prediction beside the simulated value; a mismatch is a

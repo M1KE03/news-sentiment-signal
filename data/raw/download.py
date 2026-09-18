@@ -16,7 +16,7 @@ its own full date range. The sample is therefore:
   * NOT usable for estimating market-wide headlines-per-day, because only the
     sampled tickers are present.
 
-Every audit statistic must respect that distinction. See docs/data-audit-fnspid.md.
+Every audit statistic must respect that distinction. See docs/archive/data-audit-fnspid.md.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ FNSPID_REPO = "Zihan1004/FNSPID"
 FNSPID_FILE = "Stock_news/All_external.csv"
 # Pinned by revision, not by branch. `/resolve/main/` follows whatever the
 # repository owner last pushed, so a re-run could silently acquire a different
-# artifact from the one recorded in config and in docs/data-audit-fnspid.md.
+# artifact from the one recorded in config and in docs/archive/data-audit-fnspid.md.
 FNSPID_REVISION = config.NEWS_HF_REVISION or "main"
 FNSPID_URL = (
     f"https://huggingface.co/datasets/{FNSPID_REPO}/resolve/"

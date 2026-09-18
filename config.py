@@ -35,7 +35,7 @@ PANEL_PARQUET = DATA_PROCESSED / "daily_panel.parquet"
 LM_DICT_PATH = DATA_RAW / "LoughranMcDonald_MasterDictionary.csv"
 
 # ------------------------------------------------------- news source ----
-# Resolved at B04. Evidence: docs/data-audit-fnspid.md.
+# Resolved at B04. Evidence: docs/archive/data-audit-fnspid.md.
 #
 # FNSPID's All_external.csv is five-plus heterogeneous sub-corpora concatenated
 # (Reuters, Benzinga, SeekingAlpha, Zacks, Bloomberg, lenta.ru, ...) with
@@ -105,7 +105,7 @@ MARKET_CALENDAR = "NYSE"
 # and log the freeze.
 SAMPLE_START = "2010-01-01"
 SAMPLE_END = "2019-12-31"
-# FROZEN on the assembled corpus (census: docs/data-audit-fnspid.md §11), before
+# FROZEN on the assembled corpus (census: docs/archive/data-audit-fnspid.md §11), before
 # any sentiment-return coefficient was examined. 2,516 sessions; 2 zero-news
 # sessions in ten years; no year falls below the stability tolerance.
 SAMPLE_WINDOW_PROVISIONAL = False
@@ -160,7 +160,7 @@ FINBERT_BATCH_ORDER = "length_sorted"
 
 # Acquired from the CSV linked by Notre Dame SRAF on 2026-09-10.
 # This release postdates the sample and is used for retrospective measurement.
-# Full acquisition evidence: docs/lm-dictionary-provenance.md.
+# Full acquisition evidence: docs/archive/lm-dictionary-provenance.md.
 LM_DICT_VERSION = "1993-2025 (March 2026)"
 LM_DICT_SHA256 = "e2d1328682bab7d2187684fb9f5420bb730401c9eefc00daf835edd203f4859d"
 
@@ -191,7 +191,7 @@ NW_MAXLAGS_SENSITIVITY = 10  # Stage 6
 # alternative -- lag = L retained ROWS, which is what statsmodels computes after
 # an index reset, and whose own documentation assumes equally spaced periods --
 # is always computed and reported alongside as a sensitivity, never substituted.
-# See docs/hac-spacing-decision.md.
+# See docs/archive/hac-spacing-decision.md.
 HAC_CONVENTION = "session_indexed"
 
 # ------------------------------------------------------ D11 lag family ----

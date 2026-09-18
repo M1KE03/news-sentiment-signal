@@ -4,7 +4,7 @@ The clean-directory check has two halves. The half a test can do is verify that
 every command the README promises exists and every claim the report makes is
 traceable to a published file. The half it cannot do is run the pipeline from an
 empty directory -- that needs a 5.7 GB download and hours of scoring, so it is a
-documented manual procedure (see `docs/reproduction.md`) rather than a test.
+documented manual procedure (see `docs/archive/reproduction.md`) rather than a test.
 
 What this catches is the failure that actually recurs: documentation drifting
 from the code until a reader follows an instruction that no longer works.

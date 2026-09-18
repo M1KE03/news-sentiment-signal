@@ -41,7 +41,7 @@ headlines per session turns a *twofold* per-headline noise difference into a
 at this aggregation.
 
 **Status: both acts complete.** 869,183 headlines scored by all three scorers,
-800 labelled by hand, every choice prespecified; 544 tests pass, 0 skip.
+800 labelled by hand, every choice prespecified; 546 tests pass, 0 skip.
 Write-up: [`report/report.md`](report/report.md). Clean-clone procedure:
 [`docs/archive/reproduction.md`](docs/archive/reproduction.md).
 

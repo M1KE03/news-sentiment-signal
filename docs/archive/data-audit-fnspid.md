@@ -148,7 +148,7 @@ Ten calendar years, ~2,500 trading sessions, comfortably above the ≥1,250 targ
 | FinBERT | `ProsusAI/finbert` @ `4556d13015211d73dccd3fdd39d39232506f3e43` (modified 2023-05-23) | **Pinned** — inspected |
 | FinBERT labels | `id2label = {0: positive, 1: negative, 2: neutral}` | **Verified** — see note |
 | Loughran–McDonald | — | **UNRESOLVED**: SRAF distributes it behind a non-stable link; must be fetched by hand, then recorded in `config.LM_DICT_VERSION` |
-| Financial PhraseBank | — | Not required unless §2 of the [validation protocol](validation-protocol.md) falls back to it |
+| Financial PhraseBank | — | Not required unless §2 of the [validation protocol](../validation-protocol.md) falls back to it |
 
 **FinBERT label-order note.** The published order is `0: positive, 1: negative, 2: neutral` — *not* the conventional negative/neutral/positive. Code that assumes an index order silently inverts the sign of every score. `src/scoring.py` resolves the positions from `model.config.id2label`, which is correct; B12 must keep that property when it exposes class probabilities.
 

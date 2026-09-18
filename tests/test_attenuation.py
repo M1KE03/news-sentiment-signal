@@ -1,6 +1,6 @@
 """R12: the attenuation derivation, checked against simulation (B21, P06, P32).
 
-These test the *mathematics* in `docs/mathematical-appendix.md`, not project
+These test the *mathematics* in `docs/archive/mathematical-appendix.md`, not project
 data. Each case has a true parameter set by construction, so a failure means the
 derivation or the code is wrong -- there is no empirical quantity here to be
 uncertain about.

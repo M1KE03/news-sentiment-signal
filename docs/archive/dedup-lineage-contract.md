@@ -4,7 +4,7 @@ Date: 2026-09-09. Increment: **R03a**. Audit finding: **A12** (with A11's missin
 
 Status: **implemented at R03b, 2026-09-09** (see §8). No artifact has been replaced; that is R03d. This document specifies what R03b implements and what R03d then verifies before the frozen corpus is rebuilt. It is written to be approved or rejected on its stated rules, in the pattern of the [timing contract](timing-contract.md) and the [scoring checkpoint contract](scoring-checkpoint-contract.md).
 
-Related: [project audit](project-audit-2026-09-09.md) A11/A12 · repair plan R03a–R03d · [data audit](data-audit-fnspid.md) §11 · [validation protocol](validation-protocol.md) §4.
+Related: [project audit](project-audit-2026-09-09.md) A11/A12 · repair plan R03a–R03d · [data audit](data-audit-fnspid.md) §11 · [validation protocol](../validation-protocol.md) §4.
 
 ---
 
@@ -18,7 +18,7 @@ Four defects in `data.dedup` and one missing capability, all reproduced against 
 | **D-2** | The surviving representative is selected by an unspecified, unstable sort | Which row survives — and therefore which ticker tags and which raw text reach scoring — depends on upstream row order |
 | **D-3** | Duplicate rows' ticker tags are discarded with the row | `audit.concentration_profile` reads surviving tags as "companies covered" |
 | **D-4** | `ceil(2/(1-overlap))` evaluates to 21 at `overlap=0.90` | The quoted blocking exposure omits the documented 20-unique-token boundary |
-| **D-5** | No lineage survives dedup; the corpus has no article-group identifier | [Validation protocol](validation-protocol.md) §4 assigns whole article groups to the calibration/evaluation parts, and there is no column to key that on — **R06a cannot be implemented against the current schema** |
+| **D-5** | No lineage survives dedup; the corpus has no article-group identifier | [Validation protocol](../validation-protocol.md) §4 assigns whole article groups to the calibration/evaluation parts, and there is no column to key that on — **R06a cannot be implemented against the current schema** |
 
 ## 2. Evidence
 
@@ -177,7 +177,7 @@ This is the part the audit collapsed into one item, and the distinction matters.
 | Windowed | Yes, 3 days | **No** |
 | Members | Survivor + eliminated rows | Surviving headlines related to each other |
 
-A story published 10 days apart survives dedup twice, because the window is 3 days. Those two survivors are different rows of the clean corpus but the **same article group** for annotation purposes, and [validation protocol](validation-protocol.md) §4 requires them assigned to the same part.
+A story published 10 days apart survives dedup twice, because the window is 3 days. Those two survivors are different rows of the clean corpus but the **same article group** for annotation purposes, and [validation protocol](../validation-protocol.md) §4 requires them assigned to the same part.
 
 **Article groups are computed at R06a, within the drawn sample, by exact pairwise comparison — no blocking, no window.** The reasoning is the point:
 

@@ -678,7 +678,7 @@ def hac_meat(
 
     **This is the only place the spacing rule is implemented.** R07c's argument
     rests on the two conventions being one computation with one differing input
-    (`archive/hac-spacing-decision.md`); a second copy of this loop would quietly make
+    (`docs/archive/hac-spacing-decision.md`); a second copy of this loop would quietly make
     that false, so the stacked estimator calls this rather than reimplementing
     the pairing.
     """

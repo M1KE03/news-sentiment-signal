@@ -103,7 +103,7 @@ Act 1 cannot be reproduced from artifacts. It requires independent human labels,
 
 The sample is drawn and frozen: 800 headlines, 200 calibration / 600 evaluation, split by article group and stored as a file. **The draw is made once** (P25); re-running it requires a dated decision-log entry. The blind export carries `headline_id` and `text` only.
 
-1. Label the 60-item pilot: `data/annotation/pilot_worksheet.csv`, instructions in `data/annotation/PILOT_README.md`, rubric v1 in [`validation-protocol.md`](validation-protocol.md) §5.
+1. Label the 60-item pilot: `data/annotation/pilot_worksheet.csv`, instructions in `data/annotation/PILOT_README.md`, rubric v1 in [`validation-protocol.md`](../validation-protocol.md) §5.
 2. Fill `data/annotation/provenance_pilot.json`. It is **rejected until every human declaration is replaced** — that refusal is deliberate: `validate_annotation_provenance` never manufactures a declaration.
 3. Assess the pilot — rubric difficulties, class balance, throughput — before committing to the remaining 740.
 
